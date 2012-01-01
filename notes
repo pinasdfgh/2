@@ -1,0 +1,18 @@
+USB Canon G3
+
+Enable wireshark sniffing
+mount -t debugfs / /sys/kernel/debug
+
+gphoto2 --camera="Canon PowerShot G3 (normal mode)" --capture-image-and-download
+
+bmRequestType is 0xC0 during read and 0x40 during write.
+bRequest is 0x4 if length of data is >1, 0x0c otherwise (length >1 ? 0x04 : 0x0C)
+wValue differs between operations.
+wIndex is always 0x00
+wLength is simply the length of data.
+
+How to sniff
+http://hackaday.com/2009/03/19/usb-sniffing-in-linux/
+http://biot.com/blog/usb-sniffing-on-linux
+http://wiki.wireshark.org/CaptureSetup/USB
+
