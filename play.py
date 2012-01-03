@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/bpython2 -i
 """Invoke this script in an interactive console for debugging
 
 bpython2 -i sandbox.py

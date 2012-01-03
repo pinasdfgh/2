@@ -146,24 +146,26 @@ class Camera(object):
         _log.debug("Executing command %s, expecting %s bytes back",
                    cmd['c_idx'], cmd['return_length'])
 
-        packet = array('B', [0]*0x50)
+        # what we dump on the pipe
+        packet = array('B', [0] * 0x50)
         payload_length = len(payload) if payload else 0
         # request size
         packet[0:4] = array('B', struct.pack('<I', payload_length + 0x10))
-        packet[0x40] = 2
+        packet[0x40] = 2 # just works this way
         packet[0x44] = cmd['cmd1'];
         packet[0x47] = cmd['cmd2'];
         packet[4:8] = array('B', struct.pack('<I', cmd['cmd3']))
         packet[0x4c:0x4c+4] = array('B', struct.pack('<I', self._cmd_serial))
         self._cmd_serial += 1
-        packet[0x48:0x48+4] = packet[0:4]
+        packet[0x48:0x48+4] = packet[0:4] # again
 
         if payload_length:
             packet.extend(array('B', payload))
 
         self._ctrl_write_assert(0x10, packet)
 
-        # read the response
+        # the response
+        # always read first chunk if return_length says so
         total_read = int(cmd['return_length'])
         remainder_read = total_read % 0x40
         first_read = total_read - remainder_read
