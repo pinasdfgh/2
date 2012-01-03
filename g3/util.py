@@ -11,5 +11,11 @@ def itole32a(i):
 def le32stoi(s):
     return struct.unpack('<I', s)[0]
 
-def le32atoi(a):
-    return struct.unpack('<I', a.tostring())[0]
+def le32toi(raw):
+    if type(raw) is array:
+        raw = raw.tostring()
+    elif type(raw) is str:
+        pass
+    else:
+        raw = array('B', raw).tostring()
+    return le32stoi(raw)
