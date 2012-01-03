@@ -43,10 +43,10 @@ class Camera(object):
 
     def initialize(self):
         try:
-            self.dev.get_active_configuration()
-            _log.debug("Device already configured")
+            cfg = self.dev.get_active_configuration()
+            _log.debug("Configuration %s already set.", cfg.bConfigurationValue)
         except usb.core.USBError, e:
-            _log.debug("Seems device wasnt configured ...")
+            _log.debug("Will configure device now.")
             self.dev.set_configuration()
             self.dev.set_interface_altsetting()
 
@@ -101,8 +101,12 @@ class Camera(object):
 
     def rc_start(self):
         while True:
-            if not self.ep_int.read(0x10):
+            read = self.ep_int.read(0x10)
+            if not len(read):
+                _log.debug("No more data on the INT endpoint")
                 break
+            _log.debug("Got %s bytes from INT endpoint", len(read))
+
         old_timeout, self.dev.default_timeout = self.dev.default_timeout, 10000
         data = self._canon_dialogue_rc(commands.RC_INIT)
         self.dev.default_timeout = old_timeout
@@ -197,7 +201,7 @@ class Camera(object):
 #        if len(data) >= 0x50:
 #            reported_len = struct.unpack('<I', data[0x48:0x48+4].tostring())
 #            if reported_len != len(data):
-#                import warnings; warnings.
+#                import warnings; warnings.warn()
 
         return data
 
@@ -210,7 +214,10 @@ class Camera(object):
             payload.fromstring('\x00\x00\x00\x00')
         else:
             payload.extend(arguments)
-        return self._canon_dialogue(cmd, payload)
+        try:
+            return self._canon_dialogue(cmd, payload)
+        finally:
+            self.dev.default_timeout = old_timeout
 
 
 
