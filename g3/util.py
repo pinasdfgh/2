@@ -19,3 +19,24 @@ def le32toi(raw):
     else:
         raw = array('B', raw).tostring()
     return le32stoi(raw)
+
+def chunks(l, n):
+    """ Yield successive n-sized chunks from l.
+    """
+    for i in xrange(0, len(l), n):
+        yield l[i:i+n]
+
+def hex_text(data):
+    """Dump nicely printed binary data as hexadecimal text.
+    """
+    if type(data) is str:
+        data = array.tostring()
+    elif type(data) is unicode:
+        data = array('u', data)
+
+    out = ["%04x %s" % (row_idx*0x10,
+                            ' '.join(("%02x"%x for x in row)))
+            for row_idx, row
+            in enumerate(chunks(data, 0x10))]
+
+    return "\n".join(out)
