@@ -1,5 +1,12 @@
 USB Canon G3
 
+USB pcap and Python
+http://wiki.wireshark.org/Tools lists
+http://www.mit.edu/~armenb/sharktools/
+
+USB for Scapy here
+http://comments.gmane.org/gmane.comp.security.scapy.general/4255
+
 Enable wireshark sniffing
 mount -t debugfs / /sys/kernel/debug
 
