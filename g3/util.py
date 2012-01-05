@@ -26,7 +26,7 @@ def chunks(l, n):
     for i in xrange(0, len(l), n):
         yield l[i:i+n]
 
-def hex_text(data):
+def dumphex(data):
     """Dump nicely printed binary data as hexadecimal text.
     """
     if type(data) is str:

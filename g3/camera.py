@@ -9,7 +9,7 @@ import usb.util
 import usb.control
 
 from g3 import commands
-from g3.util import extract_string, le32toi, itole32a, hex_text
+from g3.util import extract_string, le32toi, itole32a, dumphex
 from usb.core import USBError
 import time
 
@@ -106,13 +106,13 @@ class CanonUSB(object):
                                  data_or_wLength=data_length, timeout=timeout)
         if len(response) != data_length:
             raise G3Error("incorrect response length form camera")
-        _log.debug("_control_read got\n" + hex_text(response))
+        _log.debug("_control_read got\n" + dumphex(response))
         return response
 
     def _control_write(self, wValue, data='', timeout=None):
         bRequest = 0x04 if len(data) > 1 else 0x0c
         _log.debug("_control_write(0x%x, 0x%x, 0x%x, 0x%x):\n%s",
-                   0x40, bRequest, wValue, 0, hex_text(data) or 'None')
+                   0x40, bRequest, wValue, 0, dumphex(data) or 'None')
         i = self.device.ctrl_transfer(0x40, bRequest, wValue=wValue, wIndex=0,
                                       data_or_wLength=data, timeout=timeout)
         if i != len(data):
@@ -124,14 +124,14 @@ class CanonUSB(object):
         if not len(data) == size:
             raise G3Error("unexpected data length (%s instead of %s)",
                           len(data), size)
-        _log.debug("_bulk_read got %s bytes:\n%s" % (len(data), hex_text(data)))
+        _log.debug("_bulk_read got %s bytes:\n%s" % (len(data), dumphex(data)))
         return data
 
     def _poll_interrupt(self, size, timeout=500):
         data = self.ep_int.read(size, timeout)
         if len(data):
             _log.debug("interrupt pipe yielded %s bytes:\n%s", len(data),
-                       hex_text(data))
+                       dumphex(data))
         return data
 
     def canon_dialogue(self, cmd, payload=None):
