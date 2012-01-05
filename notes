@@ -10,6 +10,9 @@ http://comments.gmane.org/gmane.comp.security.scapy.general/4255
 Enable wireshark sniffing
 mount -t debugfs / /sys/kernel/debug
 
+Check
+https://bitbucket.org/dwaley/usb-reverse-engineering
+
 gphoto2 --camera="Canon PowerShot G3 (normal mode)" --capture-image-and-download
 
 bmRequestType is 0xC0 during read and 0x40 during write.
