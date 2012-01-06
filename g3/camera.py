@@ -7,10 +7,10 @@ from array import array
 import usb.core
 import usb.util
 import usb.control
+from usb.core import USBError
 
 from g3 import commands
 from g3.util import extract_string, le32toi, itole32a, dumphex
-from usb.core import USBError
 import time
 
 _log = logging.getLogger(__name__)
@@ -43,14 +43,14 @@ class CanonUSB(object):
         try:
             self.canon_dialogue(commands.IDENTIFY_CAMERA)
             return True
-        except (usb.core.USBError, G3Error):
+        except (USBError, G3Error):
             return False
 
     def initialize(self):
         try:
             cfg = self.device.get_active_configuration()
             _log.debug("Configuration %s already set.", cfg.bConfigurationValue)
-        except usb.core.USBError, e:
+        except USBError, e:
             _log.debug("Will configure device now.")
             self.device.set_configuration()
             self.device.set_interface_altsetting()
@@ -59,7 +59,7 @@ class CanonUSB(object):
             usb.control.clear_feature(self.device, usb.control.ENDPOINT_HALT, self.ep_in)
             usb.control.clear_feature(self.device, usb.control.ENDPOINT_HALT, self.ep_out)
             usb.control.clear_feature(self.device, usb.control.ENDPOINT_HALT, self.ep_int)
-        except usb.core.USBError, e:
+        except USBError, e:
             _log.info("Clearing HALTs failed: %s", e)
             pass
 

@@ -21,6 +21,9 @@ wValue differs between operations.
 wIndex is always 0x00
 wLength is simply the length of data.
 
+Match remote control commands in wireshark
+(usb.capdata[4:4] == 01:02:00:00) && (usb.capdata[68:4] == 13:00:00:12)
+
 How to sniff
 http://hackaday.com/2009/03/19/usb-sniffing-in-linux/
 http://biot.com/blog/usb-sniffing-on-linux
