@@ -1,3 +1,13 @@
+# coding: utf-8
+"""
+USB Command structures extracted from gphoto2, see
+    libgphoto2/camlibs/canon/usb.c for command structures
+    the containing directory for usage thereof
+
+TODO: Pythonify this code: commands should be objects with the
+      basic pack/unpack logic return length calculation and such
+      built in.
+"""
 
 GET_FILE = {
     'c_idx': 'GET_FILE',

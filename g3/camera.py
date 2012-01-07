@@ -40,6 +40,11 @@ class CanonUSB(object):
         self._cmd_serial = 0
 
     def is_ready(self):
+        """Check if the camera has been initialized by issuing IDENTIFY_CAMERA.
+
+        gphoto2 source claims that this command does not change the state
+        of the camera and can safely be issued without any side effects.
+        """
         try:
             self.canon_dialogue(commands.IDENTIFY_CAMERA)
             return True
@@ -47,6 +52,8 @@ class CanonUSB(object):
             return False
 
     def initialize(self):
+        """Bring the camera into a state where it accepts commands.
+        """
         try:
             cfg = self.device.get_active_configuration()
             _log.debug("Configuration %s already set.", cfg.bConfigurationValue)
@@ -61,7 +68,6 @@ class CanonUSB(object):
             usb.control.clear_feature(self.device, usb.control.ENDPOINT_HALT, self.ep_int)
         except USBError, e:
             _log.info("Clearing HALTs failed: %s", e)
-            pass
 
         # do the init dance
         camstat = self._control_read(0x55, 1).tostring()
@@ -195,19 +201,27 @@ class CanonUSB(object):
         if len(data) != cmd['return_length']:
             raise G3Error("didn't get expected number of bytes in response")
 
-#        if len(data) >= 0x50:
-#            reported_len = struct.unpack('<I', data[0x48:0x48+4].tostring())
-#            if reported_len != len(data):
-#                import warnings; warnings.warn()
+        # TODO: implement the check gphoto2 does when it sees the camera
+        #       reporting a return_length different than the expected for
+        #       this command.
+        #if len(data) >= 0x50:
+        #    reported_len = struct.unpack('<I', data[0x48:0x48+4].tostring())
+        #    if reported_len != len(data):
+        #        import warnings; warnings.warn()
 
         return data
 
     def canon_dialogue_stripped(self, cmd, payload=None):
+        """Do a command dialogue but strip off the first 0x50 bytes
+        """
         data = self.canon_dialogue(cmd, payload)
         return data[0x50:]
 
     def canon_dialogue_rc(self, rc_cmd, arg1=None, arg2=None):
-        """Conduct an in-remote-control command."""
+        """Do a remote-control command
+
+        See http://www.graphics.cornell.edu/~westin/canon/ch03s18.html
+        """
         old_timeout, self.device.default_timeout = self.device.default_timeout, 15000
         cmd = commands.CONTROL_CAMERA.copy()
         cmd['return_length'] += rc_cmd['return_length']
@@ -252,6 +266,8 @@ class Camera(object):
             return False
 
     def identify_camera(self):
+        """ -> (model, owner, version) strings
+        """
         data = self.usb.canon_dialogue(commands.IDENTIFY_CAMERA)
         model = extract_string(data, 0x5c)
         owner = extract_string(data, 0x7c)
@@ -259,6 +275,8 @@ class Camera(object):
         return model, owner, version
 
     def set_time(self, new_date=None):
+        """Set the current date and time
+        """
         if new_date is None:
             # TODO: convert to local tz, accept datetime
             new_date = time.time()
@@ -267,16 +285,22 @@ class Camera(object):
         return self.get_time()
 
     def get_time(self):
+        """Get the current date and time
+        """
         resp = self.usb.canon_dialogue_stripped(commands.GET_TIME)
         return le32toi(resp[4:8])
 
+    def get_picture(self):
+        resp = self.usb.canon_dialogue(commands.GET_FILE)
+
+
     def rc_start(self):
-#        while True:
-#            read = self.ep_int.read(0x10)
-#            if not len(read):
-#                _log.debug("No more data on the INT endpoint")
-#                break
-#            _log.debug("Got %s bytes from INT endpoint", len(read))
+        while True:
+            read = self.ep_int.read(0x10)
+            if not len(read):
+                _log.debug("No more data on the INT endpoint")
+                break
+            _log.debug("Got %s bytes from INT endpoint", len(read))
 
         old_timeout, self.device.default_timeout = self.device.default_timeout, 15000
         data = self.usb.canon_dialogue_rc(commands.RC_INIT)
@@ -304,8 +328,5 @@ class Camera(object):
                we must read the interrupt pipe before the response
                comes back for this commmand. */
             canon_usb_capture_dialogue(&return_length, &photo_status, context );
-
-
-
         """
 
