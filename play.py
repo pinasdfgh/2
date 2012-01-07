@@ -9,12 +9,14 @@ import logging
 import threading
 import time
 from array import array
+from pprint import pprint
 
 import usb.core
 import usb.control
 import usb.util
 
 import g3
+from g3.util import hexdump
 
 cam = None
 
@@ -45,7 +47,6 @@ def init():
     if not cam:
         return
     cam.initialize()
-    cam.identify_camera()
 
 if __name__ == '__main__':
     init()

@@ -1,12 +1,16 @@
 import struct
+import string
 from array import array
 
-def extract_string(data, start):
-    end = data[start:].index(0x00)
+def extract_string(data, start=0):
+    try:
+        end = data[start:].index(0x00)
+    except:
+        return None
     return data[start:start+end].tostring()
 
 def itole32a(i):
-    array('B', struct.pack('<I', i))
+    return array('B', struct.pack('<I', i))
 
 def le32stoi(s):
     return struct.unpack('<I', s)[0]
@@ -26,7 +30,7 @@ def chunks(l, n):
     for i in xrange(0, len(l), n):
         yield l[i:i+n]
 
-def dumphex(data):
+def hexdump(data, with_ascii=True):
     """Dump nicely printed binary data as hexadecimal text.
     """
     if type(data) is str:
@@ -34,9 +38,22 @@ def dumphex(data):
     elif type(data) is unicode:
         data = array('u', data)
 
-    out = ["%04x %s" % (row_idx*0x10,
-                            ' '.join(("%02x"%x for x in row)))
-            for row_idx, row
-            in enumerate(chunks(data, 0x10))]
+    data = enumerate(chunks(data, 0x10))
+
+    def format_row(idx, row):
+        hextext =  "%04x %s" % (row_idx*0x10,
+                                ' '.join(("%02x"%x for x in row)))
+        if with_ascii:
+            hextext = hextext.ljust(54)
+            chars = [(chr(c) if (chr(c) in string.ascii_letters
+                                 or chr(c) in string.digits
+                                 or chr(c) in string.punctuation
+                                 or chr(c) == ' ')
+                             else '.' if c == 0x00 else ';')
+                     for c in row]
+            hextext += ''.join(chars)
+        return hextext
+
+    out = [format_row(row_idx, row) for row_idx, row in data]
 
     return "\n".join(out)
