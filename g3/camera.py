@@ -4,6 +4,7 @@ import logging
 import struct
 import itertools
 from array import array
+from contextlib import contextmanager
 
 import usb.core
 import usb.util
@@ -81,6 +82,7 @@ class CanonUSB(object):
     """
     def __init__(self, device):
         self.device = device
+        self.device.default_timeout = 500
         self.iface = iface = device[0][0,0]
 
         # Other models may have different EP addresses
@@ -88,6 +90,17 @@ class CanonUSB(object):
         self.ep_out = usb.util.find_descriptor(iface, bEndpointAddress=0x02)
         self.ep_int = usb.util.find_descriptor(iface, bEndpointAddress=0x83)
         self._cmd_serial = 0
+
+    @contextmanager
+    def timeout_ctx(self, to):
+        old = self.device.default_timeout
+        self.device.default_timeout = to
+        _log.debug("timeout_ctx: {}", to)
+        try:
+            yield
+        finally:
+            _log.debug("timeout_ctx: back to {}", old)
+            self.device.default_timeout = old
 
     def is_ready(self):
         """Check if the camera has been initialized by issuing IDENTIFY_CAMERA.
@@ -120,15 +133,16 @@ class CanonUSB(object):
             _log.info("Clearing HALTs failed: %s", e)
 
         # do the init dance
-        camstat = self._control_read(0x55, 1).tostring()
-        if camstat not in ('A', 'C'):
-            raise G3Error('Some kind of init error, camstat: %s', camstat)
+        with self.timeout_ctx(5000):
+            camstat = self._control_read(0x55, 1).tostring()
+            if camstat not in ('A', 'C'):
+                raise G3Error('Some kind of init error, camstat: %s', camstat)
 
-        msg = self._control_read(0x01, 0x58)
-        if camstat == 'A':
-            _log.debug("Camera was already active")
-            self._control_read(0x04, 0x50)
-            return camstat
+            msg = self._control_read(0x01, 0x58)
+            if camstat == 'A':
+                _log.debug("Camera was already active")
+                self._control_read(0x04, 0x50)
+                return camstat
 
         _log.debug("Camera woken up, initializing")
         msg[0:0x40] = array('B', [0 for _ in range(0x40)])
@@ -162,35 +176,43 @@ class CanonUSB(object):
                                  data_or_wLength=data_length, timeout=timeout)
         if len(response) != data_length:
             raise G3Error("incorrect response length form camera")
-        _log.info("_control_read %x{:x}", len(response))
+        _log.info("_ctrl_r 0x{:x}".format(data_length))
         _log.debug(hexdump(response))
         return response
 
     def _control_write(self, wValue, data='', timeout=None):
         bRequest = 0x04 if len(data) > 1 else 0x0c
-        _log.info("_control_write(0x%x, 0x%x, 0x%x, 0x%x)",
-                  0x40, bRequest, wValue, 0)
+        _log.info("_ctrl_w(reqType: 0x%x, req: 0x%x, wValue: 0x%x)",
+                  0x40, bRequest, wValue)
+        _log.debug(hexdump(data))
         i = self.device.ctrl_transfer(0x40, bRequest, wValue=wValue, wIndex=0,
                                       data_or_wLength=data, timeout=timeout)
         if i != len(data):
             raise G3Error("control write incomplete")
         return i
 
-    def _bulk_read(self, size, timeout=500):
-        data = self.ep_in.read(size, timeout)
+    def _bulk_read(self, size, timeout=None):
+        if timeout is not None:
+            data = self.ep_in.read(size, timeout)
+        else:
+            data = self.ep_in.read(size)
+
         if not len(data) == size:
             raise G3Error("unexpected data length (%s instead of %s)",
                           len(data), size)
-        _log.info("_bulk_read got %s (0x%x)" % (len(data), len(data)))
+        _log.info("_bulk_read got %s (0x%x) bytes" % (len(data), len(data)))
         _log.debug(hexdump(data))
         return data
 
-    def _poll_interrupt(self, size, timeout=500):
-        data = self.ep_int.read(size, timeout)
-        if len(data):
-            _log.debug("interrupt pipe yielded %s bytes:\n%s", len(data),
-                       hexdump(data))
-        return data
+    def _poll_interrupt(self, size, timeout=100):
+        try:
+            data = self.ep_int.read(size, timeout)
+            if data is None:
+                return array('B')
+            return data
+        except usb.core.USBError, e:
+            _log.debug("poll %s: %s", size, e)
+            return array('B')
 
     def _construct_packet(self, cmd, payload):
         payload_length = len(payload) if payload else 0
@@ -200,13 +222,14 @@ class CanonUSB(object):
 
         # what we dump on the pipe
         packet = array('B', [0] * 0x50) # 80 byte command block
+
         packet[0:4] = request_size
         packet[0x40] = 2 # just works this way
         packet[0x44] = cmd['cmd1'];
         packet[0x47] = cmd['cmd2'];
         packet[4:8] = array('B', struct.pack('<I', cmd['cmd3']))
-        packet[0x4c:0x4c+4] = array('B', struct.pack('<I', serial))
         packet[0x48:0x48+4] = request_size # again
+        packet[0x4c:0x4c+4] = array('B', struct.pack('<I', serial))
 
         if payload is not None:
             packet.extend(array('B', payload))
@@ -219,7 +242,7 @@ class CanonUSB(object):
         TODO: this
         """
         packet = self._construct_packet(cmd, payload)
-        _log.info("{0[c_idx]:s} (0x{0[cmd1]:x}, 0x{0[cmd2]:x}, 0x{0[cmd3]:x}, "
+        _log.info("{0[c_idx]:s} (0x{0[cmd1]:x}, 0x{0[cmd2]:x}, 0x{0[cmd3]:x}), "
                   "retlen 0x{0[return_length]:x} #{1:0}"
                   .format(cmd, self._cmd_serial))
 
@@ -230,7 +253,6 @@ class CanonUSB(object):
         total_read = int(cmd['return_length'])
         first_read = 0x40
         remainder_read = total_read - first_read
-
         data = self._bulk_read(first_read)
         if cmd['cmd3'] == 0x202:
             # variable-length response
@@ -280,7 +302,7 @@ class CanonUSB(object):
         #    reported_len = struct.unpack('<I', data[0x48:0x48+4].tostring())
         #    if reported_len != len(data):
         #        import warnings; warnings.warn()
-        _log.debug("{0[c_idx]:s} #{1:0} -> 0x{2:x} bytes".format(
+        _log.info("{0[c_idx]:s} #{1:0} -> 0x{2:x} bytes".format(
                                           cmd, self._cmd_serial, len(data)))
         return data
 
@@ -290,18 +312,16 @@ class CanonUSB(object):
 
         See http://www.graphics.cornell.edu/~westin/canon/ch03s18.html
         """
-        old_timeout, self.device.default_timeout = self.device.default_timeout, 15000
         cmd = commands.CONTROL_CAMERA.copy()
-        cmd['return_length'] += rc_cmd['return_length']
+        cmd['return_length'] += rc_cmd['return_length'] - 0x10
+        _log.info("RC {0[c_idx]:s} retlen 0x{0[return_length]:x}"
+                  .format(rc_cmd, cmd))
         payload = array('B', struct.pack('<I', rc_cmd['value']))
         if arg1 is None: arg1 = 0x00
         if arg2 is None: arg2 = 0x00
 
         payload.extend(array('B', [arg1, arg2]))
-        try:
-            return self.do_command(cmd, payload, True)
-        finally:
-            self.device.default_timeout = old_timeout
+        return self.do_command(cmd, payload, True)
 
 class Camera(object):
 
@@ -323,9 +343,11 @@ class Camera(object):
         self._in_rc = False
 
     def initialize(self):
-        if not self.is_ready():
+        if self.is_ready():
             _log.info("initialize called, but camera seems up")
-            return self.usb.initialize()
+            return
+        _log.info("camera will be initialized")
+        return self.usb.initialize()
 
     def is_ready(self):
         try:
@@ -356,7 +378,7 @@ class Camera(object):
         """Get the current date and time
         """
         resp = self.usb.do_command(commands.GET_TIME, full=False)
-        return le32toi(resp[4:8])
+        return le32toi(resp[0x14:0x14+4])
 
     def get_drive(self):
         resp = self.usb.do_command(commands.FLASH_DEVICE_IDENT, full=False)
@@ -414,15 +436,16 @@ class Camera(object):
                 target.write(chunk.tostring())
 
     def rc_start(self):
-        self.usb._poll_interrupt(0x10)
-
-        old_timeout, self.device.default_timeout = self.device.default_timeout, 15000
+        old_timeout = self.device.default_timeout
+        print "GOT IT"
+        self.device.default_timeout = 8000
         data = self.usb.do_command_rc(commands.RC_INIT)
         self.device.default_timeout = old_timeout
         return data
 
     def rc_stop(self):
-        old_timeout, self.device.default_timeout = self.device.default_timeout, 10000
+        old_timeout = self.device.default_timeout
+        self.device.default_timeout = 8000
         data = self.usb.do_command_rc(commands.RC_EXIT)
         self.device.default_timeout = old_timeout
         return data
