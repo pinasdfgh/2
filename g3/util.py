@@ -1,6 +1,7 @@
 import struct
 import string
 from array import array
+import inspect
 
 def extract_string(data, start=0):
     try:
@@ -57,3 +58,4 @@ def hexdump(data, with_ascii=True):
     out = [format_row(row_idx, row) for row_idx, row in data]
 
     return "\n".join(out)
+

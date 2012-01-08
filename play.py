@@ -5,6 +5,11 @@ bpython2 -i sandbox.py
 """
 import sys
 import os
+from usb.core import Device
+
+if len(sys.argv) > 1:
+    os.environ['PYUSB_DEBUG_LEVEL'] = sys.argv[1]
+
 import logging
 import threading
 import time
@@ -16,30 +21,16 @@ import usb.control
 import usb.util
 
 import g3
+from g3 import commands
 from g3.util import hexdump
 
 cam = None
 
-class poll(object):
-    def __init__(self, cam):
-        self.cam = cam
-        self.stop = False
+INFO = logging.INFO
+DEBUG = logging.DEBUG
 
-    def __call__(self):
-        try:
-            while True:
-                self.cam.usb._poll_interrupt(0x10)
-                if self.stop:
-                    return
-                time.sleep(0.02)
-        except Exception, e:
-            print e
-            return
-
-def pt():
-    t = threading.Thread(target=poll(cam))
-    t.daemon = True
-    return t
+def lvl(ll):
+    g3.log.setLevel(ll)
 
 def init():
     global cam

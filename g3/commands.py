@@ -231,7 +231,7 @@ GET_PIC_ABILITIES = {
     'cmd1': 0x1f,
     'cmd2': 0x12,
     'cmd3': 0x201,
-    'return_length': 0x384 }
+    'return_length': 0x394 }
 
 GENERIC_LOCK_KEYS = {
     'c_idx': 'GENERIC_LOCK_KEYS',
@@ -462,6 +462,14 @@ RC_SELECT_CAM_OUTPUT = {
     'value': 0x14,
     'cmd_len': 0x00,
     'return_length': 0x00 }
+
+#captureSizeArray[] = {
+#    {CAPTURE_COMPATIBILITY, N_("Compatibility Mode")},
+#    {CAPTURE_THUMB, N_("Thumbnail")},
+#    {CAPTURE_FULL_IMAGE, N_("Full Image")},
+#    {0, NULL}
+#};
+
 
 class ReleaseParams(object):
     IMAGE_FORMAT_1_INDEX = 0x01
