@@ -8,6 +8,7 @@ TODO: Pythonify this code: commands should be objects with the
       basic pack/unpack logic return length calculation and such
       built in.
 """
+from g3.util import Bitfield, Flag
 
 GET_FILE = {
     'c_idx': 'GET_FILE',
@@ -463,15 +464,7 @@ RC_SELECT_CAM_OUTPUT = {
     'cmd_len': 0x00,
     'return_length': 0x00 }
 
-#captureSizeArray[] = {
-#    {CAPTURE_COMPATIBILITY, N_("Compatibility Mode")},
-#    {CAPTURE_THUMB, N_("Thumbnail")},
-#    {CAPTURE_FULL_IMAGE, N_("Full Image")},
-#    {0, NULL}
-#};
-
-
-class ReleaseParams(object):
+class RP(object):
     IMAGE_FORMAT_1_INDEX = 0x01
     IMAGE_FORMAT_2_INDEX = 0x02
     IMAGE_FORMAT_3_INDEX = 0x03
@@ -486,3 +479,13 @@ class ReleaseParams(object):
     EXPOSUREBIAS_INDEX   = 0x20
     SHOOTING_MODE_INDEX  = 0x08
 
+class ReleaseParams(Bitfield):
+    _size = 0x2f
+    flash = Flag(0x06, on=0x01, off=0x00)
+    beep = Flag(0x07, on=0x01, off=0x00)
+    focus_mode = Flag(0x12)
+    iso = Flag(0x1a)
+    aperture = Flag(0x1c)
+    shutter_speed = Flag(0x1e)
+    exposure_bias = Flag(0x20)
+    shooting_mode = Flag(0x08)

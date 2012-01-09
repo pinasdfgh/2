@@ -21,8 +21,24 @@ import usb.control
 import usb.util
 
 import g3
-from g3 import commands
+from g3 import protocol, util
 from g3.util import hexdump
+
+log = g3.log
+log.info(" *** GAME STARTING ***")
+log.info(" sys.argv: " + str(sys.argv))
+
+g3.log.setLevel(logging.DEBUG)
+#_h = logging.StreamHandler(open('play.log', 'a+'))
+_h = logging.StreamHandler()
+_h.setFormatter(logging.Formatter(
+    "%(created)-16.5f %(filename)s:%(lineno)-5s %(levelname)-6s %(message)s"))
+g3.log.addHandler(_h)
+
+#_usb_log = logging.getLogger('usb')
+#_usb_log.setLevel(logging.DEBUG)
+#_usb_log.addHandler(_h)
+
 
 cam = None
 

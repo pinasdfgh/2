@@ -11,8 +11,8 @@ import usb.util
 import usb.control
 from usb.core import USBError
 
-from g3 import commands
-from g3.util import extract_string, le32toi, itole32a, hexdump
+from g3 import protocol
+from g3.util import extract_string, le32toi, itole32a, hexdump, le16toi
 import time
 import threading
 
@@ -46,54 +46,10 @@ class FSAttributes(object):
                     or (self.value & self.NONRECURSE_DIR))
 
 class TransferMode(object):
-
-    THUMB_TO_PC    = 0x0001
-    FULL_TO_PC     = 0x0002
-    THUMB_TO_DRIVE = 0x0004
-    FULL_TO_DRIVE  = 0x0008
-
-    # XXX: there should be a much neater way (metaclasses!)
-
-    def __init__(self, flags=None):
-        self.flags = 0x0000 if flags is None else flags
-
-    def _set_flag(self, flag, value):
-        if value:
-            self.flags |= flag
-        else:
-            self.flags &= ~flag
-
-    @property
-    def full_to_pc(self):
-        return bool(self.flags & self.FULL_TO_PC)
-    @full_to_pc.setter
-    def full_to_pc(self, value):
-        self._set_flag(self.FULL_TO_PC, value)
-
-    @property
-    def full_to_drive(self):
-        return bool(self.flags & self.FULL_TO_DRIVE)
-    @full_to_drive.setter
-    def full_to_drive(self, value):
-        self._set_flag(self.FULL_TO_DRIVE, value)
-
-    @property
-    def thumb_to_pc(self):
-        return bool(self.flags & self.THUMB_TO_PC)
-    @thumb_to_pc.setter
-    def thumb_to_pc(self, value):
-        self._set_flag(self.THUMB_TO_PC, value)
-
-    @property
-    def thumb_to_drive(self):
-        return bool(self.flags & self.THUMB_TO_DRIVE)
-    @thumb_to_drive.setter
-    def thumb_to_drive(self, value):
-        self._set_flag(self.THUMB_TO_DRIVE, value)
-
-    def __repr__(self):
-        return "0x{:04x}".format(self.flags)
-
+    THUMB_TO_PC    = 0x01
+    FULL_TO_PC     = 0x02
+    THUMB_TO_DRIVE = 0x04
+    FULL_TO_DRIVE  = 0x08
 
 class FSEntry(object):
     def __init__(self, name, attributes, size=None, timestamp=None):
@@ -141,9 +97,9 @@ class CanonUSB(object):
     """
 
     class InterruptPoller(threading.Thread):
-        def __init__(self, usb, size, timeout=None):
+        def __init__(self, ep, size, timeout=None):
             threading.Thread.__init__(self)
-            self.usb = usb
+            self.ep = ep
             self.stop = False
             self.size = size
             self.received = array('B')
@@ -151,10 +107,10 @@ class CanonUSB(object):
             self.setDaemon(True)
 
         def run(self):
-
-            while True:
+            errors = 0
+            while errors<10:
                 try:
-                    chunk = self.usb._poll_interrupt(self.size, self.timeout)
+                    chunk = self.ep.read(self.size, self.timeout)
                     if chunk:
                         _log.info("poller got {} bytes".format(len(chunk)))
                         _log.debug("\n" + hexdump(chunk))
@@ -164,9 +120,10 @@ class CanonUSB(object):
                     time.sleep(0.05)
                 except USBError, e:
                     if e.errno == 110:
-                        pass
+                        continue
+
                     _log.warn("poll: {}".format(e))
-                    return
+                    errors += 1
 
     def __init__(self, device):
         self.device = device
@@ -202,13 +159,13 @@ class CanonUSB(object):
         of the camera and can safely be issued without any side effects.
         """
         try:
-            self.do_command(commands.IDENTIFY_CAMERA)
+            self.do_command(protocol.IDENTIFY_CAMERA)
             return True
         except (USBError, G3Error):
             return False
 
     def initialize(self):
-        """Bring the camera into a state where it accepts commands.
+        """Bring the camera into a state where it accepts protocol.
         """
         try:
             cfg = self.device.get_active_configuration()
@@ -218,12 +175,11 @@ class CanonUSB(object):
             self.device.set_configuration()
             self.device.set_interface_altsetting()
 
-#        try:
-#            usb.control.clear_feature(self.device, usb.control.ENDPOINT_HALT, self.ep_in)
-#            usb.control.clear_feature(self.device, usb.control.ENDPOINT_HALT, self.ep_out)
-#            usb.control.clear_feature(self.device, usb.control.ENDPOINT_HALT, self.ep_int)
-#        except USBError, e:
-#            _log.info("Clearing HALTs failed: %s", e)
+        for ep in (self.ep_in, self.ep_int, self.ep_out):
+            try:
+                usb.control.clear_feature(self.device, usb.control.ENDPOINT_HALT, ep)
+            except USBError, e:
+                _log.info("Clearing HALT on {} failed: {}".format(ep, e))
 
         # do the init dance
         with self.timeout_ctx(5000):
@@ -253,7 +209,7 @@ class CanonUSB(object):
         cnt = 0
         while True:
             try:
-                self.do_command(commands.IDENTIFY_CAMERA)
+                self.do_command(protocol.IDENTIFY_CAMERA)
                 return
             except (USBError, G3Error):
                 cnt += 1
@@ -313,10 +269,10 @@ class CanonUSB(object):
             _log.info("poll %s: %s", size, e)
             return array('B')
 
-    def _construct_packet(self, cmd, payload):
+    def _get_packet(self, cmd, payload):
         payload_length = len(payload) if payload else 0
         request_size = array('B', struct.pack('<I', payload_length + 0x10))
-        self._cmd_serial += 5
+        self._cmd_serial += (self._cmd_serial % 4) + 1 # just playin'
         if self._cmd_serial > 65535: self._cmd_serial = 0
         serial = array('B', struct.pack('<I', self._cmd_serial))
         serial[2] = 0x12
@@ -342,7 +298,7 @@ class CanonUSB(object):
 
         TODO: this
         """
-        packet = self._construct_packet(cmd, payload)
+        packet = self._get_packet(cmd, payload)
         _log.info("{0[c_idx]:s} (0x{0[cmd1]:x}, 0x{0[cmd2]:x}, 0x{0[cmd3]:x}), "
                   "retlen 0x{0[return_length]:x} #{1:0}"
                   .format(cmd, self._cmd_serial))
@@ -377,11 +333,18 @@ class CanonUSB(object):
                           .format(reported_read, total_read))
                 remainder_read = reported_read - first_read
             else:
-                _log.info("first chunk 0x{:x}, 0x{:x} follow, 0x{:x} reported"
+                _log.info("first chunk 0x{:x}, 0x{:x} to go, 0x{:x} reported"
                           .format(first_read, remainder_read, reported_read))
 
+        if len(data) >= 0x54:
+            status = le32toi(data, 0x50)
+            _log.info("{0[c_idx]:s} #{1:0} : status {2:x}"
+                      .format(cmd, self._cmd_serial, status))
+
         if full:
-            yield data
+            yield data[:0x40]
+        if len(data) > 0x40:
+            yield data[0x40:]
 
         def _chunked_read(size, chunk=MAX_CHUNK_SIZE):
             _log.debug("Chunked read of 0x{:x} bytes".format(size))
@@ -431,7 +394,7 @@ class CanonUSB(object):
 
         See http://www.graphics.cornell.edu/~westin/canon/ch03s18.html
         """
-        cmd = commands.CONTROL_CAMERA.copy()
+        cmd = protocol.CONTROL_CAMERA.copy()
         cmd['return_length'] += rc_cmd['return_length']
         _log.info("RC {0[c_idx]:s} retlen 0x{0[return_length]:x}"
                   .format(rc_cmd, cmd))
@@ -449,9 +412,9 @@ class Camera(object):
         self.usb = CanonUSB(device)
         self._in_rc = False
 
-    def initialize(self):
-        if self.is_ready():
-            _log.info("initialize called, but camera seems up")
+    def initialize(self, force=False):
+        if self.is_ready() and not force:
+            _log.info("initialize called, but camera seems up, force me")
             return
         _log.info("camera will be initialized")
         return self.usb.initialize()
@@ -465,7 +428,7 @@ class Camera(object):
     def identify(self):
         """ identify() -> (model, owner, version)
         """
-        data = self.usb.do_command(commands.IDENTIFY_CAMERA, full=False)
+        data = self.usb.do_command(protocol.IDENTIFY_CAMERA, full=False)
         model = extract_string(data, 0x1c)
         owner = extract_string(data, 0x3c)
         version = '.'.join([str(x) for x in data[0x1b:0x17:-1]])
@@ -481,19 +444,19 @@ class Camera(object):
             # TODO: convert to local tz, accept datetime
             new_date = time.time()
         new_date = int(new_date)
-        self.usb.do_command(commands.SET_TIME, itole32a(new_date))
+        self.usb.do_command(protocol.SET_TIME, itole32a(new_date))
         return self.get_time()
 
     def get_time(self):
         """Get the current date and time stored and ticking on the camera.
         """
-        resp = self.usb.do_command(commands.GET_TIME, full=False)
+        resp = self.usb.do_command(protocol.GET_TIME, full=False)
         return le32toi(resp[0x14:0x14+4])
 
     def get_drive(self):
         """Returns the Windows-like camera FS root.
         """
-        resp = self.usb.do_command(commands.FLASH_DEVICE_IDENT, full=False)
+        resp = self.usb.do_command(protocol.FLASH_DEVICE_IDENT, full=False)
         return extract_string(resp)
 
     def ls(self, path=None, recurse=12):
@@ -506,7 +469,7 @@ class Camera(object):
         payload = array('B', [recurse])
         payload.extend(array('B', path))
         payload.extend(array('B', [0x00] * 3))
-        data = self.usb.do_command(commands.GET_DIR, payload, False)
+        data = self.usb.do_command(protocol.GET_DIR, payload, False)
 
         def extract_entry(data):
             idx = 0
@@ -538,27 +501,6 @@ class Camera(object):
                 current = entry
             _log.info(entry)
 
-    def get_pic_abilities(self):
-        self.usb.do_command(commands.GET_PIC_ABILITIES, full=True)
-
-
-
-    def rc_get_release_params(self):
-        data = self.usb.do_command_rc(commands.RC_GET_PARAMS)
-
-    def rc_set_release_params(self, params):
-        pass
-
-    def rc_get_transfermode(self):
-        data = self.usb.do_command_rc(commands.RC_GET_PARAMS)
-
-    def rc_set_transfermode(self, tm):
-        if isinstance(tm, TransferMode):
-            flags = tm.flags
-        else:
-            flags = int(flags)
-        data = self.usb.do_command_rc(commands.RC_SET_TRANSFER_MODE, 0x04, flags)
-
     def get_file(self, path, target, thumbnail=False):
         """Download a file from the camera.
 
@@ -574,17 +516,27 @@ class Camera(object):
         payload.extend(array('B', self._normalize_path(path)))
         payload.append(0x00)
         with target:
-            for chunk in self.usb.do_command_iter(commands.GET_FILE, payload):
+            for chunk in self.usb.do_command_iter(protocol.GET_FILE, payload):
                 target.write(chunk.tostring())
 
     def set_owner(self, owner):
-        self.usb.do_command(commands.CAMERA_CHOWN, owner + '\x00')
+        self.usb.do_command(protocol.CAMERA_CHOWN, owner + '\x00')
 
     def has_ac_power(self):
         """True if the camera is not running on battery power.
         """
-        data = self.usb.do_command(commands.POWER_STATUS, full=False)
+        data = self.usb.do_command(protocol.POWER_STATUS, full=False)
         return bool((data[0x17] & 0x20) == 0x00)
+
+    def get_pic_abilities(self):
+        data = self.usb.do_command(protocol.GET_PIC_ABILITIES, full=True)
+        status = le32toi(data, 0x50)
+        struct_size = le16toi(data, 0x54)
+        model_id = le32toi(data, 0x56)
+        cam_id = extract_string(data[0x5a:0x5a+0x20])
+        _log.info("pic abilities: status {}, size {}, model {}, cam {}"
+                  .format(status, struct_size, model_id, cam_id))
+
 
     def rc_start(self, force=False):
         if self._in_rc and not force:
@@ -594,15 +546,54 @@ class Camera(object):
             self.usb._poll_interrupt(0x10)
             time.sleep(0.01)
         # if keys are not locked RC INIT fails!
-        self.usb.do_command(commands.GENERIC_LOCK_KEYS)
+        self.usb.do_command(protocol.GENERIC_LOCK_KEYS)
         with self.usb.timeout_ctx(15000):
-            data = self.usb.do_command_rc(commands.RC_INIT)
+            data = self.usb.do_command_rc(protocol.RC_INIT)
             self._in_rc = True
 
     def rc_stop(self):
         with self.usb.timeout_ctx(8000):
-            self.usb.do_command_rc(commands.RC_EXIT)
+            self.usb.do_command_rc(protocol.RC_EXIT)
             self._in_rc = False
+
+    def rc_get_release_params(self):
+        data = self.usb.do_command_rc(protocol.RC_GET_PARAMS)
+        i = protocol.RP
+        # RELEASE_PARAMS_LEN in canon.h
+        params = protocol.ReleaseParams(data[0x5c:0x5c+0x2f])
+        _log.info("Params: {}".format(params))
+
+#        flash = params[i.FLASH_INDEX]
+#        beep = params[i.BEEP_INDEX]
+#        focus_mode = params[i.FOCUS_MODE_INDEX]
+#        iso = params[i.ISO_INDEX]
+#        aperture = params[i.APERTURE_INDEX]
+#        shutter_speed = params[i.SHUTTERSPEED_INDEX]
+#        exposure_bias = params[i.EXPOSUREBIAS_INDEX]
+#        shooting_mode = params[i.SHOOTING_MODE_INDEX]
+#        _log.info("flash: 0x{:02x}, beep: 0x{:02x}, focus: 0x{:02x}, "
+#                  "iso: 0x{:02x}, ap: 0x{:02x}, speed: 0x{:02x}, "
+#                  "bias: 0x{:02x}, mode: 0x{:02x}".format(
+#                          flash, beep, focus_mode, iso, aperture,
+#                          shutter_speed, exposure_bias, shooting_mode))
+        return params
+
+    def rc_set_release_params(self, params):
+        pass
+
+    def rc_get_transfermode(self):
+        if not self._in_rc:
+            _log.warn("rc_get_transfermode works after rc_start")
+            return None
+        data = self.usb.do_command_rc(protocol.RC_GET_PARAMS, 0x04, 0x00)
+
+
+    def rc_set_transfermode(self, flags):
+        if isinstance(flags, TransferMode):
+            flags = flags.flags
+        else:
+            flags = int(flags)
+        self.usb.do_command_rc(protocol.RC_SET_TRANSFER_MODE, 0x04, flags)
 
     def _normalize_path(self, path):
         drive = self.get_drive()
@@ -616,10 +607,13 @@ class Camera(object):
         return path
 
     def __del__(self):
+        _log.info("Camera {} being cleaned up".format(self))
         if self._in_rc:
             self.rc_stop()
         self.usb = None
+        usb.util.dispose_resources(self.device)
         self.device = None
+
 
 #    def capture_(self):
 #        """
