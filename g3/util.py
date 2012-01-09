@@ -120,7 +120,7 @@ class _BoundFlag(object):
         return self
 
     def __repr__(self):
-        return "0x{:x}".format(self)
+        return "<{} 0x{:x} 0b{:0"+str(self.flag.length)+"b}>".format(self.name, int(self), int(self))
 
 class Flag(object):
     """A set of bitmasks within a bitfield.
@@ -198,11 +198,9 @@ class Bitfield(array):
             self.flags[bfl_name] = bfl
 
     def __str__(self):
-        for name, flag in self.flags.iteritems():
-            print name, hex(flag)
         return "<{} at 0x{:x} {}>".format(
                       self.__class__.__name__, hash(self),
-                      ', '.join(['{}: 0x{:x}'.format(name, flag)
+                      ', '.join(['{}: 0x{:x}'.format(name, int(flag))
                                  for name, flag in self.flags.iteritems()]))
 
     def __repr__(self):
