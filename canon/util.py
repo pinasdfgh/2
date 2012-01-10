@@ -120,7 +120,7 @@ class _BoundFlag(object):
         return self
 
     def __repr__(self):
-        return "<{} 0x{:x} 0b{:0"+str(self.flag.length)+"b}>".format(self.name, int(self), int(self))
+        return ("<{} 0x{:x} 0b{:0"+str(self.flag.length)+"b}>").format(self.name, int(self), int(self))
 
 class Flag(object):
     """A set of bitmasks within a bitfield.
@@ -159,6 +159,8 @@ class Flag(object):
         return array('B', struct.pack(self.fmt, value))
 
     def __get__(self, bitfield, owner):
+        if bitfield is None:
+            return self
         return self._get_bound(bitfield)
 
     def __set__(self, bitfield, value):
@@ -188,20 +190,19 @@ class Bitfield(array):
             raise RuntimeError("Unexpected data length for {}, got {}"
                                .format(cls, len(data)))
         bf = array.__new__(cls, 'B', data)
+        bf.flags = {}
+        for flag_name, flag in inspect.getmembers(
+                          cls, lambda f: isinstance(f, Flag)):
+            flag.name = flag_name
+            bf.flags[flag_name] = flag
         return bf
-
-    def __init__(self, data=None):
-        self.flags = {}
-        for bfl_name, bfl in inspect.getmembers(
-                                  self, lambda f: isinstance(f, _BoundFlag)):
-            bfl.flag.name = bfl_name
-            self.flags[bfl_name] = bfl
 
     def __str__(self):
         return "<{} at 0x{:x} {}>".format(
                       self.__class__.__name__, hash(self),
-                      ', '.join(['{}: 0x{:x}'.format(name, int(flag))
-                                 for name, flag in self.flags.iteritems()]))
+                      ', '.join(['{}: 0x{:x}'.format(name, int(getattr(self, name)))
+                                 for name in dir(self)
+                                    if isinstance(getattr(self, name), _BoundFlag)]))
 
     def __repr__(self):
         return "{}({})".format(self.__class__.__name__,

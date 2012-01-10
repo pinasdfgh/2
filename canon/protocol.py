@@ -8,7 +8,7 @@ TODO: Pythonify this code: commands should be objects with the
       basic pack/unpack logic return length calculation and such
       built in.
 """
-from g3.util import Bitfield, Flag
+from canon.util import Bitfield, Flag
 
 GET_FILE = {
     'c_idx': 'GET_FILE',
@@ -478,6 +478,70 @@ class RP(object):
     SHUTTERSPEED_INDEX   = 0x1e
     EXPOSUREBIAS_INDEX   = 0x20
     SHOOTING_MODE_INDEX  = 0x08
+
+class FSAttributes(Bitfield):
+
+    _size = 0x01
+
+    CANON_ATTR_UNKNOWN_2 = 0x02
+    CANON_ATTR_UNKNOWN_4 = 0x04
+    CANON_ATTR_UNKNOWN_8 = 0x08
+    CANON_ATTR_NON_RECURS_ENT_DIR = 0x10,
+    CANON_ATTR_DOWNLOADED = 0x20,
+    CANON_ATTR_UNKNOWN_40 = 0x40,
+    CANON_ATTR_RECURS_ENT_DIR = 0x80
+
+    WRITE_PROTECTED = 0x01
+    RECURSE_DIR = 0x80
+    NONRECURSE_DIR = 0x10
+
+    recurse = Flag(0, on=RECURSE_DIR, off=NONRECURSE_DIR)
+
+    @property
+    def is_dir(self):
+        return ((int(self.recurse) & self.RECURSE_DIR)
+                    or (int(self.recurse) & self.NONRECURSE_DIR))
+
+class TransferMode(object):
+    THUMB_TO_PC    = 0x01
+    FULL_TO_PC     = 0x02
+    THUMB_TO_DRIVE = 0x04
+    FULL_TO_DRIVE  = 0x08
+
+class FSEntry(object):
+    def __init__(self, name, attributes, size=None, timestamp=None):
+        self.name = name
+        self.size = size
+        self.timestamp = timestamp
+        if not isinstance(attributes, FSAttributes):
+            attributes = FSAttributes(attributes)
+        self.attr = attributes
+        self.children = []
+        self.parent = None
+
+    @property
+    def full_path(self):
+        if self.parent is None:
+            return self.name
+        return self.parent.full_path + '\\' + self.name
+    @property
+    def entry_size(self):
+        return 11 + len(self.name)
+
+    @property
+    def type(self):
+        return 'd' if self.attr.is_dir else 'f'
+
+    def __iter__(self):
+        yield self
+        for x in itertools.chain(*self.children):
+            yield x
+
+    def __repr__(self):
+        return "<FSEntry {0.type} '{0.full_path}'>".format(self)
+
+    def __str__(self):
+        return self.full_path
 
 class ReleaseParams(Bitfield):
     _size = 0x2f

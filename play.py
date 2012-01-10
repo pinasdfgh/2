@@ -20,20 +20,20 @@ import usb.core
 import usb.control
 import usb.util
 
-import g3
-from g3 import protocol, util
-from g3.util import hexdump
+import canon
+from canon import protocol, util
+from canon.util import hexdump
 
-log = g3.log
+log = canon.log
 log.info(" *** GAME STARTING ***")
 log.info(" sys.argv: " + str(sys.argv))
 
-g3.log.setLevel(logging.DEBUG)
+canon.log.setLevel(logging.DEBUG)
 #_h = logging.StreamHandler(open('play.log', 'a+'))
 _h = logging.StreamHandler()
 _h.setFormatter(logging.Formatter(
     "%(created)-16.5f %(filename)s:%(lineno)-5s %(levelname)-6s %(message)s"))
-g3.log.addHandler(_h)
+canon.log.addHandler(_h)
 
 #_usb_log = logging.getLogger('usb')
 #_usb_log.setLevel(logging.DEBUG)
@@ -46,11 +46,11 @@ INFO = logging.INFO
 DEBUG = logging.DEBUG
 
 def lvl(ll):
-    g3.log.setLevel(ll)
+    canon.log.setLevel(ll)
 
 def init():
     global cam
-    cam = g3.find()
+    cam = canon.find()
     if not cam:
         return
     cam.initialize()

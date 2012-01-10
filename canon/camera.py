@@ -11,8 +11,8 @@ import usb.util
 import usb.control
 from usb.core import USBError
 
-from g3 import protocol
-from g3.util import extract_string, le32toi, itole32a, hexdump, le16toi
+from canon import protocol
+from canon.util import extract_string, le32toi, itole32a, hexdump, le16toi
 import time
 import threading
 
@@ -30,67 +30,13 @@ def find():
     _log.info("Found a Canon G3 on bus %s address %s", dev.bus, dev.address)
     return Camera(dev)
 
-class G3Error(Exception): pass
-
-class FSAttributes(object):
-
-    RECURSE_DIR = 0x80
-    NONRECURSE_DIR = 0x10
-
-    def __init__(self, value):
-        self.value = value
-
-    @property
-    def is_dir(self):
-        return ((self.value & self.RECURSE_DIR)
-                    or (self.value & self.NONRECURSE_DIR))
-
-class TransferMode(object):
-    THUMB_TO_PC    = 0x01
-    FULL_TO_PC     = 0x02
-    THUMB_TO_DRIVE = 0x04
-    FULL_TO_DRIVE  = 0x08
-
-class FSEntry(object):
-    def __init__(self, name, attributes, size=None, timestamp=None):
-        self.name = name
-        self.size = size
-        self.timestamp = timestamp
-        if not isinstance(attributes, FSAttributes):
-            attributes = FSAttributes(attributes)
-        self.attr = attributes
-        self.children = []
-        self.parent = None
-
-    @property
-    def full_path(self):
-        if self.parent is None:
-            return self.name
-        return self.parent.full_path + '\\' + self.name
-    @property
-    def entry_size(self):
-        return 11 + len(self.name)
-
-    @property
-    def type(self):
-        return 'd' if self.attr.is_dir else 'f'
-
-    def __iter__(self):
-        yield self
-        for x in itertools.chain(*self.children):
-            yield x
-
-    def __repr__(self):
-        return "<FSEntry {0.type} '{0.full_path}'>".format(self)
-
-    def __str__(self):
-        return self.full_path
+class CanonError(Exception): pass
 
 class CanonUSB(object):
     """Communicate with a Canon camera, old style.
 
-    It is possible that this is someday used for another old Canon,
-    not my G3. It should be as generic as possible. Code is heavily based on
+    This may someday be used for another old Canon, not my G3. It should
+    be as generic as possible. Code is heavily based on
     http://www.graphics.cornell.edu/~westin/canon/index.html
     and gphoto2's source.
 
@@ -161,7 +107,7 @@ class CanonUSB(object):
         try:
             self.do_command(protocol.IDENTIFY_CAMERA)
             return True
-        except (USBError, G3Error):
+        except (USBError, CanonError):
             return False
 
     def initialize(self):
@@ -185,7 +131,7 @@ class CanonUSB(object):
         with self.timeout_ctx(5000):
             camstat = self._control_read(0x55, 1).tostring()
             if camstat not in ('A', 'C'):
-                raise G3Error('Some kind of init error, camstat: %s', camstat)
+                raise CanonError('Some kind of init error, camstat: %s', camstat)
 
             msg = self._control_read(0x01, 0x58)
             if camstat == 'A':
@@ -211,10 +157,10 @@ class CanonUSB(object):
             try:
                 self.do_command(protocol.IDENTIFY_CAMERA)
                 return
-            except (USBError, G3Error):
+            except (USBError, CanonError):
                 cnt += 1
                 if cnt >=4:
-                    raise G3Error("identify_camera failed too many times")
+                    raise CanonError("identify_camera failed too many times")
 
         return camstat
 
@@ -226,7 +172,7 @@ class CanonUSB(object):
                                  0xc0, bRequest, wValue=value, wIndex=0,
                                  data_or_wLength=data_length, timeout=timeout)
         if len(response) != data_length:
-            raise G3Error("incorrect response length form camera")
+            raise CanonError("incorrect response length form camera")
         _log.debug('\n' + hexdump(response))
         return response
 
@@ -238,7 +184,7 @@ class CanonUSB(object):
         i = self.device.ctrl_transfer(0x40, bRequest, wValue=wValue, wIndex=0,
                                       data_or_wLength=data, timeout=timeout)
         if i != len(data):
-            raise G3Error("control write incomplete")
+            raise CanonError("control write incomplete")
         return i
 
     def _bulk_read(self, size, timeout=None):
@@ -250,7 +196,7 @@ class CanonUSB(object):
             _log.warn("BAD bulk read 0x{:x} bytes instead of 0x{:x}"
                       .format(data_size, size))
             _log.debug('\n' + hexdump(data))
-            raise G3Error("unexpected data length ({} instead of {})"
+            raise CanonError("unexpected data length ({} instead of {})"
                           .format(len(data), size))
         _log.info("_bulk_read got {} (0x{:x}) b in {:.6f} sec"
                   .format(len(data), len(data), end-start))
@@ -360,7 +306,7 @@ class CanonUSB(object):
                 _log.debug("chunked reading 0x{:x}".format(chunk_size))
                 data = self._bulk_read(chunk_size)
                 if len(data) != chunk_size:
-                    raise G3Error("unable to read requested data")
+                    raise CanonError("unable to read requested data")
                 read += chunk_size
                 yield data
 
@@ -374,7 +320,7 @@ class CanonUSB(object):
             data.extend(chunk)
         #        expected = first_read + remainder_read
         #        if expected != actual_read:
-        #            raise G3Error("didn't get expected response length, "
+        #            raise CanonError("didn't get expected response length, "
         #                          " expected %s (0x%x) but got %s (0x%x)" % (
         #                             expected, expected, actual_read, actual_read))
         # TODO: implement the check gphoto2 does when it sees the camera
@@ -422,7 +368,7 @@ class Camera(object):
     def is_ready(self):
         try:
             return bool(self.identify())
-        except (USBError, G3Error):
+        except (USBError, CanonError):
             return False
 
     def identify(self):
@@ -477,7 +423,7 @@ class Camera(object):
                 name = extract_string(data, idx+10)
                 if not name:
                     raise StopIteration()
-                entry = FSEntry(name, attributes=data[idx],
+                entry = protocol.FSEntry(name, attributes=data[idx:idx+1],
                                 size=le32toi(data[idx+2:idx+6]),
                                 timestamp=le32toi(data[idx+6:idx+10]))
                 idx += entry.entry_size
@@ -579,7 +525,7 @@ class Camera(object):
         return params
 
     def rc_set_release_params(self, params):
-        pass
+        data = self.usb.do_command_rc(protocol.RC_SET_PARAMS)
 
     def rc_get_transfermode(self):
         if not self._in_rc:
@@ -589,7 +535,7 @@ class Camera(object):
 
 
     def rc_set_transfermode(self, flags):
-        if isinstance(flags, TransferMode):
+        if isinstance(flags, protocol.TransferMode):
             flags = flags.flags
         else:
             flags = int(flags)
@@ -599,7 +545,7 @@ class Camera(object):
         drive = self.get_drive()
         if path is None:
             path = ''
-        if isinstance(path, FSEntry):
+        if isinstance(path, protocol.FSEntry):
             path = path.full_path
         path = path.replace('/', '\\')
         if not path.startswith(drive):
