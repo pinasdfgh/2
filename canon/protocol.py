@@ -8,7 +8,8 @@ TODO: Pythonify this code: commands should be objects with the
       basic pack/unpack logic return length calculation and such
       built in.
 """
-from canon.util import Bitfield, Flag
+from canon.util import Bitfield, Flag, BooleanFlag
+import itertools
 
 GET_FILE = {
     'c_idx': 'GET_FILE',
@@ -483,19 +484,19 @@ class FSAttributes(Bitfield):
 
     _size = 0x01
 
-    CANON_ATTR_UNKNOWN_2 = 0x02
-    CANON_ATTR_UNKNOWN_4 = 0x04
-    CANON_ATTR_UNKNOWN_8 = 0x08
-    CANON_ATTR_NON_RECURS_ENT_DIR = 0x10,
-    CANON_ATTR_DOWNLOADED = 0x20,
-    CANON_ATTR_UNKNOWN_40 = 0x40,
-    CANON_ATTR_RECURS_ENT_DIR = 0x80
-
+    DOWNLOADED = 0x20,
     WRITE_PROTECTED = 0x01
     RECURSE_DIR = 0x80
     NONRECURSE_DIR = 0x10
 
-    recurse = Flag(0, on=RECURSE_DIR, off=NONRECURSE_DIR)
+    UNKNOWN_2 = 0x02
+    UNKNOWN_4 = 0x04
+    UNKNOWN_8 = 0x08
+    UNKNOWN_40 = 0x40,
+
+    recurse = BooleanFlag(0, true=RECURSE_DIR, false=NONRECURSE_DIR)
+    downloaded = BooleanFlag(0, )
+    protected = BooleanFlag(0)
 
     @property
     def is_dir(self):
@@ -507,6 +508,9 @@ class TransferMode(object):
     FULL_TO_PC     = 0x02
     THUMB_TO_DRIVE = 0x04
     FULL_TO_DRIVE  = 0x08
+
+    pc = Flag(0, thumb=0x01, full=0x02)
+    drive =  Flag(0, thumb=0x04, full=0x08)
 
 class FSEntry(object):
     def __init__(self, name, attributes, size=None, timestamp=None):
@@ -534,8 +538,8 @@ class FSEntry(object):
 
     def __iter__(self):
         yield self
-        for x in itertools.chain(*self.children):
-            yield x
+        for entry in itertools.chain(*self.children):
+            yield entry
 
     def __repr__(self):
         return "<FSEntry {0.type} '{0.full_path}'>".format(self)

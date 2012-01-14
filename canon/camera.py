@@ -15,6 +15,8 @@ from canon import protocol
 from canon.util import extract_string, le32toi, itole32a, hexdump, le16toi
 import time
 import threading
+from canon.storage import CanonStorage
+#from canon.rc import CanonRemote
 
 _log = logging.getLogger(__name__)
 
@@ -49,12 +51,13 @@ class CanonUSB(object):
             self.stop = False
             self.size = size
             self.received = array('B')
-            self.timeout = timeout if timeout is not None else 100
+            self.timeout = int(timeout) if timeout is not None else 100
             self.setDaemon(True)
 
         def run(self):
             errors = 0
-            while errors<10:
+            while errors < 10:
+                if self.stop: return
                 try:
                     chunk = self.ep.read(self.size, self.timeout)
                     if chunk:
@@ -63,9 +66,10 @@ class CanonUSB(object):
                         self.received.extend(chunk)
                     if len(self.received) >= self.size:
                         return
+                    if self.stop: return
                     time.sleep(0.05)
-                except USBError, e:
-                    if e.errno == 110:
+                except (USBError, ) as e:
+                    if e.errno == 110: # timeout
                         continue
 
                     _log.warn("poll: {}".format(e))
@@ -76,7 +80,7 @@ class CanonUSB(object):
         self.device.default_timeout = 500
         self.iface = iface = device[0][0,0]
 
-        # Other models may have different EP addresses
+        # Other models may have different endpoint addresses
         self.ep_in = usb.util.find_descriptor(iface, bEndpointAddress=0x81)
         self.ep_out = usb.util.find_descriptor(iface, bEndpointAddress=0x02)
         self.ep_int = usb.util.find_descriptor(iface, bEndpointAddress=0x83)
@@ -101,8 +105,9 @@ class CanonUSB(object):
     def is_ready(self):
         """Check if the camera has been initialized by issuing IDENTIFY_CAMERA.
 
-        gphoto2 source claims that this command does not change the state
+        gphoto2 source claims that this command doesn't change the state
         of the camera and can safely be issued without any side effects.
+
         """
         try:
             self.do_command(protocol.IDENTIFY_CAMERA)
@@ -116,8 +121,8 @@ class CanonUSB(object):
         try:
             cfg = self.device.get_active_configuration()
             _log.debug("Configuration %s already set.", cfg.bConfigurationValue)
-        except USBError, e:
-            _log.debug("Will configure device now.")
+        except USBError as e:
+            _log.debug("Will attempt to set configuration now, {}".format(e))
             self.device.set_configuration()
             self.device.set_interface_altsetting()
 
@@ -359,7 +364,7 @@ class Camera(object):
         self._in_rc = False
 
     def initialize(self, force=False):
-        if self.is_ready() and not force:
+        if self.usb.ready and not force:
             _log.info("initialize called, but camera seems up, force me")
             return
         _log.info("camera will be initialized")
