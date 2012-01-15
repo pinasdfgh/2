@@ -99,8 +99,8 @@ class _BoundFlag(object):
     def set_(self, value):
         """Store integer value in this bitfield.
         """
-        value = self._pack(value)
-        self._store(value)
+        bytes_ = self._pack(value)
+        self._store(bytes_)
 
     def __int__(self):
         return self._unpack(self._extract())
@@ -153,9 +153,9 @@ class _BoundFlag(object):
         if self._length == self._fmt_size:
             return bytes_
         # must add padding bytes for struct.unpack
-        pad = [0x00] * (self._fmt_size - self._length)
+        pad = '\x00' * (self._fmt_size - self._length)
         if '<' in self._fmt:
-            bytes_.extend(pad)
+            bytes_ = bytes_ + pad
         else:
             bytes_ = pad + bytes_
         return bytes_
@@ -166,7 +166,7 @@ class _BoundFlag(object):
         # must remove padding bytes for struct.pack
         offset = self._fmt_size - self._length
         if '<' in self._fmt:
-            return bytes_[:offset]
+            return bytes_[:-offset]
         else:
             return bytes_[offset:]
 
