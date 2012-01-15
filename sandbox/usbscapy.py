@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Got this from 
+Got this from
 http://comments.gmane.org/gmane.comp.security.scapy.general/4255
 """
 import logging
@@ -11,7 +11,7 @@ from scapy.packet import *
 from scapy.automaton import Automaton, ATMT
 from scapy.config import conf
 
-from StateMachine import StateMachine
+#from StateMachine import StateMachine
 
 conf.debug_dissector = True
 scapy.error.log_runtime.setLevel(logging.INFO)
@@ -40,7 +40,7 @@ if not hasattr(scapy.fields, 'StrFixedLenEnumField'):
             elif r in self.enum:
                 rr = "%s (%s)" % (rr, self.enum[r])
             return rr
-        
+
 if not hasattr(scapy.fields, 'LEXShortField'):
     class LEXShortField(LEShortField):
         def i2repr(self, pkt, x):
@@ -76,7 +76,7 @@ if not hasattr(scapy.fields, 'UTF16LEStrField') or True:
             if not isinstance(m, unicode):
                 m = m.decode(self.codec, 'replace')
             return StrField.m2i(self, pkt, m)
-        
+
     class UTF16LEStrField(CodecStrField):
         codec = 'utf_16_le'
 
@@ -90,16 +90,16 @@ if not hasattr(scapy.fields, 'ByteLenField'):
 
 class PCapUSB(Packet):
     fields_desc = [
-        StrFixedLenField('pcap_crap', 'A'*40, 40), # Check Documentation/usb/usbmon.txt which probably has details of the format 
+        StrFixedLenField('pcap_crap', 'A'*40, 40), # Check Documentation/usb/usbmon.txt which probably has details of the format
     ]
 class QemuUSB(Packet):
     DEVICETOHOST = 'D>H\x00'
     HOSTTODEVICE = 'H>D\x00'
-    
+
     SETUP = 0b00101101
     IN    = 0b01101001
     OUT   = 0b11100001
-    
+
     ATTACH = 0x100
     DETACH = 0x101
     RESET  = 0x102
@@ -114,7 +114,7 @@ class QemuUSB(Packet):
         ByteField('devep', 0),
         LEIntLenField('length', None),
     ]
-    
+
     @classmethod
     def from_file(cls, fd):
         packet_data = fd.read(len(QemuUSB()))
@@ -135,7 +135,7 @@ class QemuUSB(Packet):
         initial_length = len(QemuUSB())
         cut_off = len(self)
         self.show()
-        packet, remain = packet[:initial_length], packet[initial_length:initial_length+cut_off] 
+        packet, remain = packet[:initial_length], packet[initial_length:initial_length+cut_off]
         written = fd.write(packet)
         print 'Trying to write'
         # Maybe repalce self.length with len(self)
@@ -143,7 +143,7 @@ class QemuUSB(Packet):
         fd.flush()
         print 'written %u (%u): %s' % (len(packet)+len(remain), len(remain), packet.encode('hex') + remain.encode('hex'))
         return written
-    
+
     def same_as_wo_data(self, other):
         '''Compares another QemuUSB packet without the data. For legacy reasons.'''
         s1 = self.copy()
@@ -151,7 +151,7 @@ class QemuUSB(Packet):
         s1.payload = None
         s2.payload = None
         return s1 == s2
-            
+
 
 class USBIn(Packet):
     name = 'USBIn'
@@ -167,7 +167,7 @@ class USBOut(Packet):
 
 REQUEST_ENUM = {
     'GET_STATUS': 0x00, 'CLEAR_FEATURE': 0x01,
-    'SET_FEATURE': 0x03,                       'SET_ADDRESS':  0x05, 
+    'SET_FEATURE': 0x03,                       'SET_ADDRESS':  0x05,
     'GET_DESCRIPTOR': 0x06, 'SET_DESCRIPTOR': 0x07, 'GET_CONFIGURATION': 0x08,
     'SET_CONFIGURATION': 0x09,
 }
@@ -177,7 +177,7 @@ def is_get_descriptor(pkt):
             and pkt.type == USBSetup.TYPE_STANDARD           \
             and pkt.request == USBSetup.REQUEST_ENUM['GET_DESCRIPTOR'] \
             )
-    
+
 def is_get_descriptor_request(pkt):
     is_get_descriptor = pkt.haslayer(USBSetup) and pkt.request == REQUEST_ENUM['GET_DESCRIPTOR'] and pkt.data_xfer_direction == USBSetup.DIR_DEVICE_TO_HOST
     if is_get_descriptor == True:
@@ -194,7 +194,7 @@ def is_get_configuration_descriptor_request(pkt):
     return is_get_descriptor_request(pkt) and (pkt.descriptor_type == USBSetup.DESCRIPTOR_TYPES['Configuration'])
 
 def is_get_interface_descriptor_request(pkt):
-    
+
     return is_get_descriptor_request(pkt) and (pkt.descriptor_type == USBSetup.DESCRIPTOR_TYPES['Interface'])
 
 def is_get_string_descriptor_request(pkt):
@@ -217,26 +217,26 @@ class USBSetup(Packet):
 
     DIR_HOST_TO_DEVICE = 0
     DIR_DEVICE_TO_HOST = 1
-    
+
     TYPE_STANDARD = 0
     TYPE_CLASS    = 1
     TYPE_VENDOR   = 2
     TYPE_RESERVED = 3
-    
+
     REC_DEVICE      = 0
     REC_INTERFACE   = 1
     REC_ENDPOINT    = 2
     REC_OTHER       = 3
-    
+
     REQUEST_ENUM = REQUEST_ENUM
-    
+
     DESCRIPTOR_TYPES = {
             'Device': 1, 'Configuration': 2, 'String': 3,
             'Interface': 4, 'Endpoint': 5, 'Device Qualifier': 6,
             'Other Speed Configuration': 7, 'Interface Power': 8,
         }
-    
-    
+
+
     fields_desc = [
         BitEnumField('data_xfer_direction', 0, 1, { DIR_HOST_TO_DEVICE: 'Host-to-device', DIR_DEVICE_TO_HOST: 'Device-to-host'}),
         BitEnumField('type', 0, 2, { TYPE_STANDARD: 'Standard', TYPE_CLASS: 'Class', TYPE_VENDOR: 'Vendor', TYPE_RESERVED: 'Reserved'}),
@@ -249,27 +249,27 @@ class USBSetup(Packet):
                          ByteField('descriptor_index', 0),
                          lambda x: is_get_descriptor_request(x)),
         ConditionalField(
-                         ByteEnumField('descriptor_type', 1, DESCRIPTOR_TYPES), 
+                         ByteEnumField('descriptor_type', 1, DESCRIPTOR_TYPES),
                          lambda x: is_get_descriptor_request(x)),
-                         
+
 #                         lambda pkt: pkt.getlayer(USBSetup).request != REQUEST_ENUM['GET_DESCRIPTOR']),
 #                          lambda pkt: True),
         LEShortField('index', 0),
         LEShortField('length', 0), # Number of bytes to transfer if there is$
     ]
-    
+
     packets = scapy.plist.PacketList(name='Setups')
-    
+
     def __init__(self, *args, **kwargs):
         super(USBSetup, self).__init__(*args, **kwargs)
-        
+
     def post_dissect(self, p):
         print 'Appending to mah packets'
         USBSetup.packets.append(self)
         print 'new packets %r' % USBSetup.packets
         p = super(USBSetup, self).build_done(p)
         return p
-    
+
     @classmethod
     def get_last_packet(cls):
         try:
@@ -279,7 +279,7 @@ class USBSetup(Packet):
         return last
 
 DEVICECLASS_ENUMS = { # http://www.usb.org/developers/defined_class
-    'Base Class': 0x00, 
+    'Base Class': 0x00,
     'Communications': 0x02,
     'Hub': 0x09,
     'Diagnostic': 0x42,
@@ -323,8 +323,8 @@ class USBInDeviceDescriptor(Packet):
         ByteField('iSerialNumber', 0),
         ByteField('bNumConfigurations', 0),
     ]
-    
-    
+
+
 
 
 class USBInEndpointDescriptor(Packet):
@@ -341,16 +341,16 @@ class USBInEndpointDescriptor(Packet):
         BitEnumField('endpoint_direction', 0, 1, {'Out': 0, 'In':1,}),
         BitEnumField('endpoint_reserved0', 0, 3, {'Correct': 0, 'Wrong':1,'Wrong':2,'Wrong':3,'Wrong':4,'Wrong':5,'Wrong':6,'Wrong':7,'Wrong':8, }),
         BitField('endpoint_number', 0, 4),
-        
+
         BitField('reserved0', 0, 2),
         BitEnumField('usage_mode', 0, 2, ('Data', 'Feedback', 'Explicit Feedback', 'Reserved')),
         BitEnumField('sync_type', 0, 2, ('None', 'Async', 'Adaptive', 'Sync')),
         BitEnumField('transfer_type', 0, 2, ('Control', 'Isochronous', 'Bulk', 'Interrupt')),
-        
+
         LEShortField('wMaxPacketSize', 64), # Maximum Packet Size this endpoint is capable of sending or receiving
         ByteField('bInterval', 255), # Interval for polling endpoint data transfers. Value in frame counts. Ignored for Bulk & Control Endpoints. Isochronous must equal 1 and field may range from 1 to 255 for interrupt endpoints
     ]
-    
+
     def extract_padding(self, pay):
         return "", pay
 
@@ -388,70 +388,70 @@ class USBInInterfaceDescriptor(Packet):
         ByteField('bInterfaceProtocol', 0), # Protocol Code (Assigned by USB Org)
         ByteField('iInterface', 0), # Index of String Descriptor Describing this interface
     ]
-    
+
     def extract_padding(self, pay):
         return "", pay
 
 class USBInStringDescriptor(Packet):
     name = 'StringDescriptor'
-    
+
     LANGUAGE_ENUM = {'English-US': 0x0409, 'German-Standard': 0x0407}
-    
+
     fields_desc = [
                    FieldListField('Languages', 0x0409,
                                         LEXShortEnumField('Code', 0x0409, LANGUAGE_ENUM),
                                         count_from=lambda pkt: pkt[USBInStringDescriptor].get_field_count()),
     ]
-    
+
     def get_field_count(self):
         BYTES_PER_LANGUAGE = 2
         transport_layer = self.underlayer
         if transport_layer:
             packet_length = transport_layer.length
             transport_layer_header_length = 2
-            nr_langs = (packet_length - 
+            nr_langs = (packet_length -
                         transport_layer_header_length) / BYTES_PER_LANGUAGE
         else:
             langs = self.fields.get('Languages', [])
             nr_langs = len(langs) / BYTES_PER_LANGUAGE
         return nr_langs
-    
+
 class USBString(Packet):
     name = 'String'
-    
+
     fields_desc = [
         UTF16LEStrField('string', 'foo'),
     ]
-    
+
     def __init__(self, *args, **kwargs):
         super(USBString, self).__init__(*args, **kwargs)
-        
+
         self.index = None
         self.descriptor_index = None
-        
+
         be_stateful = True # The idea is to make this a global configuration
         if be_stateful:
             last_setup = USBSetup.get_last_packet()
             if last_setup is not None and is_get_string_descriptor_request(last_setup):
                 self.index = last_setup[USBSetup].index
                 self.descriptor_index = last_setup[USBSetup].descriptor_index
-    
+
     @staticmethod
     def string_encode(s):
         '''Returns a proper USB encoded string (UCS2 but UTF16LE)'''
         return s.encode('utf_16_le')
-     
+
     def set_string(self, s):
-        '''Applies proper USB encoding to a given string and sets it''' 
+        '''Applies proper USB encoding to a given string and sets it'''
         self.string = USBString.string_encode(s)
-    
+
     def answers_available_languages(self):
         '''Returns whether this packet represents supported languages
-        
+
         The USB host can ask the device for a packet full of supported
         languages by setting index and descriptor_index to 0.
         This function assumes that self has those fields and checks them.
-        ''' 
+        '''
         is_languages_requested = self.descriptor_index == 0 and self.index == 0
         return is_languages_requested
 
@@ -459,7 +459,7 @@ class USBString(Packet):
 
 class USBInDescriptor(Packet):
     name = 'Descriptor'
-    
+
     TYPE_ENUM = { 'Device': 0x01, 'Configuration': 0x02,
                   'String': 0x03, 'Interface': 0x04,
                   'Endpoint': 0x05,
@@ -470,7 +470,7 @@ class USBInDescriptor(Packet):
         ByteField('length', None),
         ByteEnumField('type', 0x01, TYPE_ENUM),
     ]
-    
+
     def guess_payload_class(self, payload):
         TYPE_ENUM = self.TYPE_ENUM
         TYPE_TO_CLASS = {
@@ -489,7 +489,7 @@ class USBInDescriptor(Packet):
             descriptor_index = last_setup[USBSetup].descriptor_index
             if this_type == self.TYPE_ENUM['String'] and index == 0 and descriptor_index == 0:
                 cls = USBInStringDescriptor
-        
+
         return cls or self.default_payload_class(payload)
 
     def post_build(self, pkt, pay):
@@ -519,9 +519,9 @@ class USBInConfigurationDescriptor(Packet):
 #                         lambda pkt: True,
 #                         )
     ]
-    
+
     def post_build(self, pkt, pay):
-        '''Adjusts the length of the whole packet (wTotalLength) and the bNumInterfaces''' 
+        '''Adjusts the length of the whole packet (wTotalLength) and the bNumInterfaces'''
         if self.wTotalLength is None:
             offset = 0
             value = len(pkt) & 0xFF
@@ -529,17 +529,17 @@ class USBInConfigurationDescriptor(Packet):
             offset = 1
             value = (len(pkt)>>8) & 0xFF
             pkt = pkt[:offset] + chr(value) + pkt[offset+1:]
-        
+
         if self.bNumInterfaces is None:
             numInterfaces = sum(map(lambda x: isinstance(x.payload, USBInInterfaceDescriptor), self.descriptors))
             print 'found %d interfaces' % numInterfaces
             offset = 0+1+1
             value = numInterfaces
             pkt = pkt[:offset] + chr(value) + pkt[offset+1:]
-            
+
         # FIXME: Build bNumEndpoints or so in Interfacedescriptor
         return pkt+ pay
-    
+
     def extract_padding(self, pay):
         return "", pay
 
@@ -577,7 +577,7 @@ class USB_MSD_CBW(Packet):
         BitField('reserved0', 3, 0),
         BitField('bCBWCBLength', 4, 0),
     ]
-        
+
 class USB_MSD_CSW(Packet):
     '''See USB mass storage: designing and programming devices and embedded hosts Von Jan Axelson p. 78ff'''
     field_desc = [
@@ -611,7 +611,7 @@ class USBParser(StateMachine):
         StateMachine.__init__(self)
         self.data = data
         self.packets = []
-        
+
     def get_last_packet(self):
         self.packets[-1]
 
@@ -680,7 +680,7 @@ def test():
             if packet.pipe_direction == direction:
                 print repr(packet)
 #                print packet.command()
-                print binascii.hexlify(str(packet.payload)) if packet.pipe_direction == QemuUSB.DEVICETOHOST else None 
+                print binascii.hexlify(str(packet.payload)) if packet.pipe_direction == QemuUSB.DEVICETOHOST else None
 
 def bla():
     print [hex(ord(x)) for x in hexdump]

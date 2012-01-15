@@ -5,7 +5,7 @@ import inspect
 from orca.orca import isDiacriticalKey
 import math
 
-ARRAY_FORMAT = [None, 'B', 'H', None, 'I', None, None, None, 'Q']
+ARRAY_FORMAT = [None, 'B', '<H', '<I', '<I', '<Q', '<Q', '<Q', '<Q']
 
 def extract_string(data, start=0):
     try:
@@ -30,7 +30,7 @@ def itole32a(i):
     return array('B', struct.pack('<I', i))
 
 def _normalize_to_string(raw):
-    if type(raw) is array:
+    if isinstance(raw, array):
         raw = raw.tostring()
     elif type(raw) is str:
         pass
@@ -39,6 +39,8 @@ def _normalize_to_string(raw):
         raw = array(ARRAY_FORMAT[length], [raw]).tostring()
     return raw
 
+
+
 def chunks(l, n):
     """ Yield successive n-sized chunks from l.
     """
@@ -46,7 +48,7 @@ def chunks(l, n):
         yield l[i:i+n]
 
 def hexdump(data, with_ascii=True):
-    """Dump nicely printed binary data as hexadecimal text.
+    """Return the binary data as nicely printed hexadecimal text.
     """
     if type(data) is str:
         data = array('B', data)
@@ -56,7 +58,7 @@ def hexdump(data, with_ascii=True):
     data = enumerate(chunks(data, 0x10)) # 16 bytes per line
 
     def format_row(idx, row):
-        'Return a line represented in row'
+        'line of text for the 16 bytes in row'
         hextext = []
         for half in chunks(row, 8): # split the 16 bytes in the middle
             part = ' '.join("{:02x}".format(x) for x in half)
@@ -70,10 +72,10 @@ def hexdump(data, with_ascii=True):
         chartext = []
         for half in chunks(row, 8):
             chars = [(chr(c) if (chr(c) in string.ascii_letters
-                                 or chr(c) in string.digits
-                                 or chr(c) in string.punctuation
-                                 or chr(c) == ' ')
-                             else '.' if c == 0x00 else ';')
+                                     or chr(c) in string.digits
+                                     or chr(c) in string.punctuation
+                                     or chr(c) == ' ')
+                             else ('.' if c == 0x00 else ';'))
                      for c in half]
             part = ''.join(chars)
             chartext.append(part)
@@ -88,26 +90,17 @@ class _BoundFlag(object):
     """An instance binging a ``Flag`` to a ``Bitfield``.
     """
     def __init__(self, bitfield, flag):
-        self.bitfield = bitfield
-        self.flag = flag
-        for attr in ('_start', '_end', '_length', '_pack', '_unpack'):
-            setattr(self, attr, getattr(flag, attr))
+        self._bitfield = bitfield
+        self._flag = flag
+        for attr_name in ('_fmt', '_fmt_size', '_start', '_end', '_length',
+                          'name'):
+            setattr(self, attr_name, getattr(flag, attr_name))
 
-    @property
-    def name(self):
-        return self.flag.name
-
-    def store(self, value):
-        """Store the value in the bitfield."""
+    def set_(self, value):
+        """Store integer value in this bitfield.
+        """
         value = self._pack(value)
         self._store(value)
-
-    def _store(self, packed):
-        self.bitfield[self._start:self._end] = packed
-
-    def _extract(self):
-        data = self.bitfield[self._start:self._end]
-        return data
 
     def __int__(self):
         return self._unpack(self._extract())
@@ -119,28 +112,77 @@ class _BoundFlag(object):
     def __iadd__(self, other):
         """Set bits from other in self."""
         new = int(self) | int(other)
-        self.store(new)
+        self.set_(new)
         return self
 
     def __isub__(self, other):
         """Clear bits from other in self."""
-        new = int(self) & ~int(other)
-        self.store(new)
+        new = int(self) & (~int(other))
+        self.set_(new)
         return self
 
     def __contains__(self, other):
-        """(VALUE[, VALUE ...]) in self -> all(lambda x: x in self, (VALUE[, ...])
+        """(v1[, v2 ...]) in self <=> all(lambda x: x in self, (v1[, v2 ...]))
         """
+        all_ = 0x00
         try:
-            all = 0x00
             for o in other:
-                all |= int(o)
-            return int(self) == all
-        except TypeError:
-            return int(self) == other
+                all_ |= int(o)
+        except TypeError: # other is not iterable, unless some int(o) raised,
+            all_ = int(other) # but if so this should raise too
+
+        return int(self) == all_
 
     def __repr__(self):
-        return ("<{} 0x{:x} 0b{:0"+str(self.flag.length)+"b}>").format(self.name, int(self), int(self))
+        return ("<{} 0x{:x} 0b{:0"+str(self._length)+"b}>").format(self.name, int(self), int(self))
+
+    def _extract(self):
+        """return a self._length-long array from bitfield
+        """
+        return self._bitfield[self._start:self._end]
+
+    def _store(self, bytes_):
+        """set the bytes of length self._length in the bitfield
+        """
+        if not isinstance(bytes_, array):
+            bytes_ = array('B', bytes_)
+        assert len(bytes_) == self._length
+        self._bitfield[self._start:self._end] = bytes_
+
+    def _pad(self, bytes_):
+        if self._length == self._fmt_size:
+            return bytes_
+        # must add padding bytes for struct.unpack
+        pad = [0x00] * (self._fmt_size - self._length)
+        if '<' in self._fmt:
+            bytes_.extend(pad)
+        else:
+            bytes_ = pad + bytes_
+        return bytes_
+
+    def _unpad(self, bytes_):
+        if self._length == self._fmt_size:
+            return bytes_
+        # must remove padding bytes for struct.pack
+        offset = self._fmt_size - self._length
+        if '<' in self._fmt:
+            return bytes_[:offset]
+        else:
+            return bytes_[offset:]
+
+    def _unpack(self, bytes_):
+        """Return the data array as number.
+        """
+        data = _normalize_to_string(bytes_)
+        assert len(data) == self._length
+        data = self._pad(data)
+        return struct.unpack(self._fmt, data)[0]
+
+    def _pack(self, value):
+        """Return value as array('B') of length self._length.
+        """
+        bytes_ = struct.pack(self._fmt, int(value))
+        return self._unpad(bytes_)
 
 class Flag(object):
     """A set of bitmasks within a bitfield.
@@ -153,6 +195,8 @@ class Flag(object):
     _bound_class = _BoundFlag
 
     def __init__(self, offset, length=None, fmt=None, mask=None, **choices):
+        self._bound = {}
+        self._choices = {}
         self._start = int(offset)
         self._length = 1
         if length is not None:
@@ -160,31 +204,21 @@ class Flag(object):
             self._length = int(length)
         self._end = self._start + self._length
         if fmt is None:
-            self.fmt = ARRAY_FORMAT[self._length]
+            self._fmt = ARRAY_FORMAT[self._length]
         else:
             assert struct.calcsize(fmt) == \
                     struct.calcsize(ARRAY_FORMAT[self._length])
-            self.fmt = fmt
-        self._bound = {}
-        self._by_name = {}
-        self._by_value = {}
+            self._fmt = fmt
+
+        self._fmt_size = struct.calcsize(self._fmt)
         if choices:
-            self._by_name = choices.copy()
-            choices.reverse()
-            self._by_value = dict((v,k) for (k,v) in choices.items().reverse())
+            self._choices = dict([(k.lower(), v) for (k, v) in choices.iteritems()])
 
-    def __getattribute__(self, name):
-        by_name = super(Flag, self).__getattribute__('_by_name')
-        by_value = super(Flag, self).__getattribute__('_by_value')
-        if name in by_name:
-            return by_name[name]
-        elif name in by_value:
-            return by_value[name]
-#        elif name in self.__dict__:
-#            return self.__dict__[name]
-        else:
-            return super(Flag, self).__getattribute__(name)
-
+    def __getattr__(self, name):
+        name = name.lower()
+        if name in self._choices:
+            return self._choices[name]
+        raise AttributeError("{} has no attribute {}".format(self, name))
 
     @classmethod
     def _get_bound_instance(cls, self, bitfield):
@@ -196,13 +230,6 @@ class Flag(object):
             self._bound[h] = self._get_bound_instance(self, bitfield)
         return self._bound[h]
 
-    def _unpack(self, data):
-        data = _normalize_to_string(data)
-        return struct.unpack(self.fmt, data)[0]
-
-    def _pack(self, value):
-        return array('B', struct.pack(self.fmt, value))
-
     def __get__(self, bitfield, owner):
         if bitfield is None:
             return self
@@ -212,7 +239,7 @@ class Flag(object):
         if bitfield is None:
             return
         b = self._get_bound(bitfield)
-        b.store(value)
+        b.set_(value)
 
 class BooleanFlag(Flag):
     _size = 1

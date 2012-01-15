@@ -1,8 +1,5 @@
-import sys
-import os
 import logging
 import struct
-import itertools
 from array import array
 from contextlib import contextmanager
 
@@ -15,8 +12,6 @@ from canon import protocol
 from canon.util import extract_string, le32toi, itole32a, hexdump, le16toi
 import time
 import threading
-from canon.storage import CanonStorage
-#from canon.rc import CanonRemote
 
 _log = logging.getLogger(__name__)
 
@@ -115,6 +110,8 @@ class CanonUSB(object):
         except (USBError, CanonError):
             return False
 
+    ready = property(is_ready)
+
     def initialize(self):
         """Bring the camera into a state where it accepts protocol.
         """
@@ -171,7 +168,7 @@ class CanonUSB(object):
 
     def _control_read(self, value, data_length=0, timeout=None):
         bRequest = 0x04 if data_length > 1 else 0x0c
-        _log.info("_ctrl_r(req: 0x{:x} wValue: 0x{:x}) reading 0x{:x} bytes"
+        _log.info("CTRL IN (req: 0x{:x} wValue: 0x{:x}) reading 0x{:x} bytes"
                    .format(bRequest, value, data_length))
         response = self.device.ctrl_transfer(
                                  0xc0, bRequest, wValue=value, wIndex=0,
@@ -183,7 +180,7 @@ class CanonUSB(object):
 
     def _control_write(self, wValue, data='', timeout=None):
         bRequest = 0x04 if len(data) > 1 else 0x0c
-        _log.info("_ctrl_w(rt: 0x{:x}, req: 0x{:x}, wValue: 0x{:x}) 0x{:x} bytes"
+        _log.info("CTRL OUT (rt: 0x{:x}, req: 0x{:x}, wValue: 0x{:x}) 0x{:x} bytes"
                   .format(0x40, bRequest, wValue, len(data)))
         _log.debug("\n" + hexdump(data))
         i = self.device.ctrl_transfer(0x40, bRequest, wValue=wValue, wIndex=0,
@@ -198,12 +195,12 @@ class CanonUSB(object):
         end = time.time()
         data_size = len(data)
         if not data_size == size:
-            _log.warn("BAD bulk read 0x{:x} bytes instead of 0x{:x}"
+            _log.warn("BAD bulk in 0x{:x} bytes instead of 0x{:x}"
                       .format(data_size, size))
             _log.debug('\n' + hexdump(data))
             raise CanonError("unexpected data length ({} instead of {})"
                           .format(len(data), size))
-        _log.info("_bulk_read got {} (0x{:x}) b in {:.6f} sec"
+        _log.info("bulk in got {} (0x{:x}) b in {:.6f} sec"
                   .format(len(data), len(data), end-start))
         _log.debug("\n" + hexdump(data))
         return data
@@ -232,7 +229,7 @@ class CanonUSB(object):
         packet = array('B', [0] * 0x50) # 80 byte command block
 
         packet[0:4] = request_size
-        packet[0x40] = 2 # just works this way
+        packet[0x40] = 2 # just works, gphoto2 does magic for other camera classes
         packet[0x44] = cmd['cmd1'];
         packet[0x47] = cmd['cmd2'];
         packet[4:8] = array('B', struct.pack('<I', cmd['cmd3']))
@@ -259,8 +256,6 @@ class CanonUSB(object):
         # the response
         # always read first chunk if return_length says so
         total_read = int(cmd['return_length'])
-        #first_read = 0x40
-        #remainder_read = total_read - first_read
         if total_read > MAX_CHUNK_SIZE:
             first_read = MAX_CHUNK_SIZE
         elif total_read > 0x40:
@@ -287,37 +282,41 @@ class CanonUSB(object):
                 _log.info("first chunk 0x{:x}, 0x{:x} to go, 0x{:x} reported"
                           .format(first_read, remainder_read, reported_read))
 
-        if len(data) >= 0x54:
-            status = le32toi(data, 0x50)
-            _log.info("{0[c_idx]:s} #{1:0} : status {2:x}"
-                      .format(cmd, self._cmd_serial, status))
-
         if full:
             yield data[:0x40]
-        if len(data) > 0x40:
-            yield data[0x40:]
 
-        def _chunked_read(size, chunk=MAX_CHUNK_SIZE):
-            _log.debug("Chunked read of 0x{:x} bytes".format(size))
-            read = 0
-            while read < size:
-                remaining = size - read
-                if remaining > chunk:
-                    chunk_size = chunk
-                elif remaining > 0x40:
-                    chunk_size = remaining - (remaining % 0x40)
-                else:
-                    chunk_size = remaining
-                _log.debug("chunked reading 0x{:x}".format(chunk_size))
-                data = self._bulk_read(chunk_size)
-                if len(data) != chunk_size:
-                    raise CanonError("unable to read requested data")
-                read += chunk_size
-                yield data
+        data = data[0x40:]
 
-        for data_chunk in _chunked_read(remainder_read):
-            yield data_chunk
+        if len(data) >= 0x14:
+            status = le32toi(data, 0x10)
+            _log.info("{0[c_idx]:s} #{1:0} : status {2:x}"
+                      .format(cmd, self._cmd_serial, status))
+        if len(data):
+            yield data
 
+        _log.debug("Chunked read of 0x{:x} bytes".format(remainder_read))
+        read = 0
+        while read < remainder_read:
+            remaining = remainder_read - read
+            if remaining > MAX_CHUNK_SIZE:
+                chunk_size = MAX_CHUNK_SIZE
+            elif remaining > 0x40:
+                chunk_size = remaining - (remaining % 0x40)
+            else:
+                chunk_size = remaining
+
+            _log.debug("chunked reading 0x{:x}".format(chunk_size))
+            data = self._bulk_read(chunk_size)
+            if len(data) != chunk_size:
+                raise CanonError("unable to read requested data")
+
+            if read <= 0x10 and (chunk_size + read) >= 0x14:
+                status = le32toi(data, 0x10-read)
+                _log.info("{0[c_idx]:s} #{1:0} : status {2:x}"
+                          .format(cmd, self._cmd_serial, status))
+
+            read += chunk_size
+            yield data
 
     def do_command(self, cmd, payload=None, full=False):
         data = array('B')
@@ -340,20 +339,22 @@ class CanonUSB(object):
         return data
 
 
-    def do_command_rc(self, rc_cmd, arg1=None, arg2=None):
+    def do_command_rc(self, rc_cmd, arg1=None, arg2=None, payload=None):
         """Do a remote-control command
 
         See http://www.graphics.cornell.edu/~westin/canon/ch03s18.html
         """
+        assert not ((payload is not None) and (arg1 is not None))
         cmd = protocol.CONTROL_CAMERA.copy()
         cmd['return_length'] += rc_cmd['return_length']
         _log.info("RC {0[c_idx]:s} retlen 0x{0[return_length]:x}"
                   .format(rc_cmd, cmd))
-        payload = array('B', struct.pack('<I', rc_cmd['value']))
-        if arg1 is None: arg1 = 0x00
-        payload.extend(itole32a(arg1))
-        if arg2 is not None:
-            payload.extend(itole32a(arg2))
+        if payload is None:
+            payload = array('B', struct.pack('<I', rc_cmd['value']))
+            if arg1 is None: arg1 = 0x00
+            payload.extend(itole32a(arg1))
+            if arg2 is not None:
+                payload.extend(itole32a(arg2))
         return self.do_command(cmd, payload, True)
 
 class Camera(object):
@@ -385,6 +386,17 @@ class Camera(object):
         version = '.'.join([str(x) for x in data[0x1b:0x17:-1]])
         return model, owner, version
 
+    @property
+    def camera_time(self):
+        """Get the current date and time stored and ticking on the camera.
+        """
+        resp = self.usb.do_command(protocol.GET_TIME, full=False)
+        return le32toi(resp[0x14:0x14+4])
+
+    @camera_time.setter
+    def camera_time(self, new):
+        return self.set_time(new)
+
     def set_time(self, new_date=None):
         """Set the current date and time.
 
@@ -396,13 +408,8 @@ class Camera(object):
             new_date = time.time()
         new_date = int(new_date)
         self.usb.do_command(protocol.SET_TIME, itole32a(new_date))
-        return self.get_time()
+        return self.camera_time
 
-    def get_time(self):
-        """Get the current date and time stored and ticking on the camera.
-        """
-        resp = self.usb.do_command(protocol.GET_TIME, full=False)
-        return le32toi(resp[0x14:0x14+4])
 
     def get_drive(self):
         """Returns the Windows-like camera FS root.
@@ -459,16 +466,16 @@ class Camera(object):
         and write to.
         ``thumbnail`` says wheter to get the thumbnail or the whole file.
         """
-        if not hasattr('write', target):
+        if not hasattr(target, 'write'):
             target = open(target, 'wb+')
         payload = array('B', [0x00]*8)
         payload[0] = 0x01 if thumbnail else 0x00
         payload[4:8] = itole32a(MAX_CHUNK_SIZE)
         payload.extend(array('B', self._normalize_path(path)))
         payload.append(0x00)
-        with target:
-            for chunk in self.usb.do_command_iter(protocol.GET_FILE, payload):
-                target.write(chunk.tostring())
+#        with target:
+        for chunk in self.usb.do_command_iter(protocol.GET_FILE, payload):
+            target.write(chunk.tostring())
 
     def set_owner(self, owner):
         self.usb.do_command(protocol.CAMERA_CHOWN, owner + '\x00')
@@ -499,44 +506,33 @@ class Camera(object):
         # if keys are not locked RC INIT fails!
         self.usb.do_command(protocol.GENERIC_LOCK_KEYS)
         with self.usb.timeout_ctx(15000):
-            data = self.usb.do_command_rc(protocol.RC_INIT)
+            self.usb.do_command_rc(protocol.RC_INIT)
             self._in_rc = True
 
     def rc_stop(self):
-        with self.usb.timeout_ctx(8000):
+        with self.usb.timeout_ctx(1000):
             self.usb.do_command_rc(protocol.RC_EXIT)
             self._in_rc = False
 
     def rc_get_release_params(self):
         data = self.usb.do_command_rc(protocol.RC_GET_PARAMS)
-        i = protocol.RP
         # RELEASE_PARAMS_LEN in canon.h
         params = protocol.ReleaseParams(data[0x5c:0x5c+0x2f])
         _log.info("Params: {}".format(params))
 
-#        flash = params[i.FLASH_INDEX]
-#        beep = params[i.BEEP_INDEX]
-#        focus_mode = params[i.FOCUS_MODE_INDEX]
-#        iso = params[i.ISO_INDEX]
-#        aperture = params[i.APERTURE_INDEX]
-#        shutter_speed = params[i.SHUTTERSPEED_INDEX]
-#        exposure_bias = params[i.EXPOSUREBIAS_INDEX]
-#        shooting_mode = params[i.SHOOTING_MODE_INDEX]
-#        _log.info("flash: 0x{:02x}, beep: 0x{:02x}, focus: 0x{:02x}, "
-#                  "iso: 0x{:02x}, ap: 0x{:02x}, speed: 0x{:02x}, "
-#                  "bias: 0x{:02x}, mode: 0x{:02x}".format(
-#                          flash, beep, focus_mode, iso, aperture,
-#                          shutter_speed, exposure_bias, shooting_mode))
         return params
 
     def rc_set_release_params(self, params):
-        data = self.usb.do_command_rc(protocol.RC_SET_PARAMS)
+        """canon.c: canon_int_set_release_params"""
+        data = self.usb.do_command_rc(protocol.RC_SET_PARAMS,
+                                      payload=(array('B', [0]*8) + params))
+        return data
 
     def rc_get_transfermode(self):
         if not self._in_rc:
             _log.warn("rc_get_transfermode works after rc_start")
             return None
-        data = self.usb.do_command_rc(protocol.RC_GET_PARAMS, 0x04, 0x00)
+        self.usb.do_command_rc(protocol.RC_GET_PARAMS, 0x04, 0x00)
 
 
     def rc_set_transfermode(self, flags):
