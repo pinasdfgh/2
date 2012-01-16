@@ -120,8 +120,9 @@ class Camera(object):
         self._usb = None
         self._storage = None
         self._capture = None
-        usb.util.dispose_resources(self.device)
-        self.device = None
+        if self.device:
+            usb.util.dispose_resources(self.device)
+            self.device = None
 
     def __del__(self):
         self.cleanup()

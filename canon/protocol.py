@@ -201,41 +201,41 @@ class CanonUSB(object):
                 _log.info("Clearing HALT on {} failed: {}".format(ep, e))
 
         p = self.poller()
-        # do the init dance
-        with self.timeout_ctx(5000):
-            camstat = self._control_read(0x55, 1).tostring()
-            if camstat not in ('A', 'C'):
-                raise CanonError('Some kind of init error, camstat: %s', camstat)
+        try:
+            # do the init dance
+            with self.timeout_ctx(5000):
+                camstat = self._control_read(0x55, 1).tostring()
+                if camstat not in ('A', 'C'):
+                    raise CanonError('Some kind of init error, camstat: %s', camstat)
 
-            msg = self._control_read(0x01, 0x58)
-            if camstat == 'A':
-                _log.debug("Camera was already active")
-                self._control_read(0x04, 0x50)
-                return camstat
+                msg = self._control_read(0x01, 0x58)
+                if camstat == 'A':
+                    _log.debug("Camera was already active")
+                    self._control_read(0x04, 0x50)
+                    return camstat
 
-        _log.debug("Camera woken up, initializing")
-        msg[0:0x40] = array('B', [0]*0x40)
-        msg[0] = 0x10
-        msg[0x40:] = msg[-0x10:]
-        self._control_write(0x11, msg)
-        self._bulk_read(0x44)
+            _log.debug("Camera woken up, initializing")
+            msg[0:0x40] = array('B', [0]*0x40)
+            msg[0] = 0x10
+            msg[0x40:] = msg[-0x10:]
+            self._control_write(0x11, msg)
+            self._bulk_read(0x44)
 
-        read = 0
-        read += len(self._poll_interrupt(0x10))
-        while read < 0x10:
-            time.sleep(0.02)
-            read += len(self._poll_interrupt(0x10))
+            while len(p.received) < 0x10:
+                time.sleep(0.2)
 
-        cnt = 0
-        while cnt < 4:
-            cnt += 1
-            try:
-                self.do_command(commands.IDENTIFY_CAMERA)
-                return camstat
-            except (USBError, CanonError), e:
-                _log.debug("identify after init fails: {}".format(e))
+            cnt = 0
+            while cnt < 4:
+                cnt += 1
+                try:
+                    self.do_command(commands.IDENTIFY_CAMERA)
+                    return camstat
+                except (USBError, CanonError), e:
+                    _log.debug("identify after init fails: {}".format(e))
 
-        raise CanonError("identify_camera failed too many times")
+            raise CanonError("identify_camera failed too many times")
+        finally:
+            p.stop()
 
 
     def _control_read(self, value, data_length=0, timeout=None):
@@ -278,16 +278,12 @@ class CanonUSB(object):
         return data
 
     def _poll_interrupt(self, size, timeout=100):
-        try:
-            data = self.ep_int.read(size, timeout)
-            if data is not None and len(data):
-                _log.info("Interrupt got {} bytes".format(len(data)))
-                _log.debug("\n" + hexdump(data))
-                return data
-            return array('B')
-        except usb.core.USBError, e:
-            _log.info("poll %s: %s", size, e)
-            return array('B')
+        data = self.ep_int.read(size, timeout)
+        if data is not None and len(data):
+            _log.info("Interrupt got {} bytes".format(len(data)))
+            _log.debug("\n" + hexdump(data))
+            return data
+        return array('B')
 
     def _get_packet(self, cmd, payload):
         payload_length = len(payload) if payload else 0

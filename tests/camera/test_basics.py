@@ -1,8 +1,9 @@
 import unittest
 
-from . import base
+from .base import BaseCameraTestCase
+
 import time
-class BasicCameraOperationsTest(base.BaseCameraTestCase):
+class BasicCameraOperationsTest(BaseCameraTestCase):
 
     def test_time_can_be_read(self):
         t = self.cam.camera_time
