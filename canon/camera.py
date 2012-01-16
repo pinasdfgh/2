@@ -1,5 +1,24 @@
+#
+# This file is part of canon-remote
+# Copyright (C) 2011 Kiril Zyapkov
+#
+# canon-remote is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# canon-remote is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with canon-remote.  If not, see <http://www.gnu.org/licenses/>.
+#
+
 import logging
 import time
+from array import array
 
 import usb.core
 import usb.util
@@ -71,19 +90,16 @@ class Camera(object):
 
     @camera_time.setter
     def camera_time(self, new):
-        return self.set_time(new)
-
-    def set_time(self, new_date=None):
         """Set the current date and time.
 
         Currently only accepts UNIX timestamp, should be translated to the
         local timezone.
         """
-        if new_date is None:
+        if new is None:
             # TODO: convert to local tz, accept datetime
-            new_date = time.time()
-        new_date = int(new_date)
-        self._usb.do_command(commands.SET_TIME, itole32a(new_date))
+            new = time.time()
+        new = int(new)
+        self._usb.do_command(commands.SET_TIME, itole32a(new) + array('B', [0] * 8))
         return self.camera_time
 
     @property

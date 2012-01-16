@@ -1,4 +1,21 @@
-# coding: utf-8
+#
+# This file is part of canon-remote
+# Copyright (C) 2011 Kiril Zyapkov
+#
+# canon-remote is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# canon-remote is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with canon-remote.  If not, see <http://www.gnu.org/licenses/>.
+#
+
 import struct
 import threading
 import itertools
@@ -289,7 +306,8 @@ class CanonUSB(object):
         payload_length = len(payload) if payload else 0
         request_size = array('B', struct.pack('<I', payload_length + 0x10))
         self._cmd_serial += (self._cmd_serial % 4) + 1 # just playin'
-        if self._cmd_serial > 65535: self._cmd_serial = 0
+        if self._cmd_serial > 65535:
+                self._cmd_serial = 0
         serial = array('B', struct.pack('<I', self._cmd_serial))
         serial[2] = 0x12
 
@@ -313,6 +331,7 @@ class CanonUSB(object):
         """Run a command on the camera.
 
         TODO: this
+
         """
         packet = self._get_packet(cmd, payload)
         _log.info("{0[c_idx]:s} (0x{0[cmd1]:x}, 0x{0[cmd2]:x}, 0x{0[cmd3]:x}), "

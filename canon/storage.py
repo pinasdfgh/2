@@ -1,6 +1,24 @@
+#
+# This file is part of canon-remote
+# Copyright (C) 2011 Kiril Zyapkov
+#
+# canon-remote is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# canon-remote is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with canon-remote.  If not, see <http://www.gnu.org/licenses/>.
+#
+
 import logging
 
-from canon import protocol
+from canon import protocol, commands
 from canon.util import extract_string, le32toi, itole32a
 from array import array
 
@@ -20,7 +38,7 @@ class CanonStorage(object):
         payload = array('B', [recurse])
         payload.extend(array('B', path))
         payload.extend(array('B', [0x00] * 3))
-        data = self._usb.do_command(protocol.GET_DIR, payload, False)
+        data = self._usb.do_command(commands.GET_DIR, payload, False)
 
         def extract_entry(data):
             idx = 0
@@ -63,17 +81,17 @@ class CanonStorage(object):
             target = open(target, 'wb+')
         payload = array('B', [0x00]*8)
         payload[0] = 0x01 if thumbnail else 0x00
-        payload[4:8] = itole32a(self._usb.MAX_CHUNK_SIZE)
+        payload[4:8] = itole32a(protocol.MAX_CHUNK_SIZE)
         payload.extend(array('B', self._normalize_path(path)))
         payload.append(0x00)
 #        with target:
-        for chunk in self._usb.do_command_iter(protocol.GET_FILE, payload):
+        for chunk in self._usb.do_command_iter(commands.GET_FILE, payload):
             target.write(chunk.tostring())
 
     def get_drive(self):
         """Returns the Windows-like camera FS root.
         """
-        resp = self._usb.do_command(protocol.FLASH_DEVICE_IDENT, full=False)
+        resp = self._usb.do_command(commands.FLASH_DEVICE_IDENT, full=False)
         return extract_string(resp)
 
     def _normalize_path(self, path):
