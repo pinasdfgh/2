@@ -1,469 +1,20 @@
 # coding: utf-8
-"""
-USB Command structures extracted from gphoto2, see
-    libgphoto2/camlibs/canon/usb.c for command structures
-    the containing directory for usage thereof
-
-TODO: Pythonify this code: commands should be objects with the
-      basic pack/unpack logic return length calculation and such
-      built in.
-"""
-from canon.util import Bitfield, Flag, BooleanFlag
+import struct
+import threading
 import itertools
+import logging
+from array import array
 
-GET_FILE = {
-    'c_idx': 'GET_FILE',
-    'description': "Get file",
-    'cmd1': 0x01,
-    'cmd2': 0x11,
-    'cmd3': 0x202,
-    'return_length': 0x40 }
+from canon import commands, CanonError
+from canon.util import Bitfield, Flag, BooleanFlag, le32toi, hexdump, itole32a
+import time
+from usb.core import USBError
+import usb.util
+from contextlib import contextmanager
 
-MKDIR = {
-    'c_idx': 'MKDIR',
-    'description': "Make directory",
-    'cmd1': 0x05,
-    'cmd2': 0x11,
-    'cmd3': 0x201,
-    'return_length': 0x54 }
+_log = logging.getLogger(__name__)
 
-RMDIR = {
-    'c_idx': 'RMDIR',
-    'description': "Remove directory",
-    'cmd1': 0x06,
-    'cmd2': 0x11,
-    'cmd3': 0x201,
-    'return_length': 0x54 }
-
-DISK_INFO = {
-    'c_idx': 'DISK_INFO',
-    'description': "Disk info request",
-    'cmd1': 0x09,
-    'cmd2': 0x11,
-    'cmd3': 0x201,
-    'return_length': 0x5c }
-
-FLASH_DEVICE_IDENT = {
-    'c_idx': 'FLASH_DEVICE_IDENT',
-    'description': "Flash device ident",
-    'cmd1': 0x0a,
-    'cmd2': 0x11,
-    'cmd3': 0x202,
-    'return_length': 0x40 }
-
-DELETE_FILE_2 = {
-    'c_idx': 'DELETE_FILE_2',
-    'description': "Delete file",
-    'cmd1': 0x0a,
-    'cmd2': 0x11,
-    'cmd3': 0x201,
-    'return_length': 0x54 }
-
-GET_DIR = {
-    'c_idx': 'GET_DIR',
-    'description': "Get directory entries",
-    'cmd1': 0x0b,
-    'cmd2': 0x11,
-    'cmd3': 0x202,
-    'return_length': 0x40 }
-
-DELETE_FILE = {
-    'c_idx': 'DELETE_FILE',
-    'description': "Delete file",
-    'cmd1': 0x0d,
-    'cmd2': 0x11,
-    'cmd3': 0x201,
-    'return_length': 0x54 }
-
-DISK_INFO_2 = {
-    'c_idx': 'DISK_INFO_2',
-    'description': "Disk info request (new)",
-    'cmd1': 0x0d,
-    'cmd2': 0x11,
-    'cmd3': 0x201,
-    'return_length': 0x5c }
-
-SET_ATTR = {
-    'c_idx': 'SET_ATTR',
-    'description': "Set file attributes",
-    'cmd1': 0x0e,
-    'cmd2': 0x11,
-    'cmd3': 0x201,
-    'return_length': 0x54 }
-
-FLASH_DEVICE_IDENT_2 = {
-    'c_idx': 'FLASH_DEVICE_IDENT_2',
-    'description': "Flash device ident (new)",
-    'cmd1': 0x0e,
-    'cmd2': 0x11,
-    'cmd3': 0x202,
-    'return_length': 0x40 }
-
-SET_FILE_TIME = {
-    'c_idx': 'SET_FILE_TIME',
-    'description': "Set file time",
-    'cmd1': 0x0f,
-    'cmd2': 0x11,
-    'cmd3': 0x201,
-    'return_length': 0x54 }
-
-IDENTIFY_CAMERA = {
-    'c_idx': 'IDENTIFY_CAMERA',
-    'description': "Identify camera",
-    'cmd1': 0x01,
-    'cmd2': 0x12,
-    'cmd3': 0x201,
-    'return_length': 0x9c }
-
-GET_TIME = {
-    'c_idx': 'GET_TIME',
-    'description': "Get time",
-    'cmd1': 0x03,
-    'cmd2': 0x12,
-    'cmd3': 0x201,
-    'return_length': 0x60 }
-
-SET_TIME = {
-    'c_idx': 'SET_TIME',
-    'description': "Set time",
-    'cmd1': 0x04,
-    'cmd2': 0x12,
-    'cmd3': 0x201,
-    'return_length': 0x54 }
-
-CAMERA_CHOWN = {
-    'c_idx': 'CAMERA_CHOWN',
-    'description': "Change camera owner",
-    'cmd1': 0x05,
-    'cmd2': 0x12,
-    'cmd3': 0x201,
-    'return_length': 0x54 }
-
-GET_OWNER = {
-    'c_idx': 'GET_OWNER',
-    'description': "Get owner name (new)",
-    'cmd1': 0x05,
-    'cmd2': 0x12,
-    'cmd3': 0x201,
-    'return_length': 0x74 }
-
-CAMERA_CHOWN_2 = {
-    'c_idx': 'CAMERA_CHOWN_2',
-    'description': "Change owner (new)",
-    'cmd1': 0x06,
-    'cmd2': 0x12,
-    'cmd3': 0x201,
-    'return_length': 0x54 }
-
-POWER_STATUS = {
-    'c_idx': 'POWER_STATUS',
-    'description': "Power supply status",
-    'cmd1': 0x0a,
-    'cmd2': 0x12,
-    'cmd3': 0x201,
-    'return_length': 0x58 }
-
-CONTROL_CAMERA = {
-    'c_idx': 'CONTROL_CAMERA',
-    'description': "Remote camera control",
-    'cmd1': 0x13,
-    'cmd2': 0x12,
-    'cmd3': 0x201,
-    'return_length': 0x40 }
-
-POWER_STATUS_2 = {
-    'c_idx': 'POWER_STATUS_2',
-    'description': "Power supply status (new)",
-    'cmd1': 0x13,
-    'cmd2': 0x12,
-    'cmd3': 0x201,
-    'return_length': 0x58 }
-
-RETRIEVE_CAPTURE = {
-    'c_idx': 'RETRIEVE_CAPTURE',
-    'description': "Download a captured image",
-    'cmd1': 0x17,
-    'cmd2': 0x12,
-    'cmd3': 0x202,
-    'return_length': 0x40 }
-
-RETRIEVE_PREVIEW = {
-    'c_idx': 'RETRIEVE_PREVIEW',
-    'description': "Download a captured preview",
-    'cmd1': 0x18,
-    'cmd2': 0x12,
-    'cmd3': 0x202,
-    'return_length': 0x40 }
-
-UNKNOWN_FUNCTION = {
-    'c_idx': 'UNKNOWN_FUNCTION',
-    'description': "Unknown function",
-    'cmd1': 0x1a,
-    'cmd2': 0x12,
-    'cmd3': 0x201,
-    'return_length': 0x80 }
-
-EOS_LOCK_KEYS = {
-    'c_idx': 'EOS_LOCK_KEYS',
-    'description': "EOS lock keys",
-    'cmd1': 0x1b,
-    'cmd2': 0x12,
-    'cmd3': 0x201,
-    'return_length': 0x54 }
-
-EOS_UNLOCK_KEYS = {
-    'c_idx': 'EOS_UNLOCK_KEYS',
-    'description': "EOS unlock keys",
-    'cmd1': 0x1c,
-    'cmd2': 0x12,
-    'cmd3': 0x201,
-    'return_length': 0x54 }
-
-EOS_GET_BODY_ID = {
-    'c_idx': 'EOS_GET_BODY_ID',
-    'description': "EOS get body ID",
-    'cmd1': 0x1d,
-    'cmd2': 0x12,
-    'cmd3': 0x201,
-    'return_length': 0x58 }
-
-GET_PIC_ABILITIES = {
-    'c_idx': 'GET_PIC_ABILITIES',
-    'description': "Get picture abilities",
-    'cmd1': 0x1f,
-    'cmd2': 0x12,
-    'cmd3': 0x201,
-    'return_length': 0x394 }
-
-GENERIC_LOCK_KEYS = {
-    'c_idx': 'GENERIC_LOCK_KEYS',
-    'description': "Lock keys and turn off LCD",
-    'cmd1': 0x20,
-    'cmd2': 0x12,
-    'cmd3': 0x201,
-    'return_length': 0x54 }
-
-#20D_UNKNOWN_1 = {
-#    'c_idx': '20D_UNKNOWN_1',
-#    'description': "Unknown EOS 20D function",
-#    'cmd1': 0x21,
-#    'cmd2': 0x12,
-#    'cmd3': 0x201,
-#    'return_length': 0x54 }
-#
-#20D_UNKNOWN_2 = {
-#    'c_idx': '20D_UNKNOWN_2',
-#    'description': "Unknown EOS 20D function",
-#    'cmd1': 0x22,
-#    'cmd2': 0x12,
-#    'cmd3': 0x201,
-#    'return_length': 0x54 }
-
-EOS_GET_BODY_ID_2 = {
-    'c_idx': 'EOS_GET_BODY_ID_2',
-    'description': "Get body ID (new)",
-    'cmd1': 0x23,
-    'cmd2': 0x12,
-    'cmd3': 0x201,
-    'return_length': 0x58 }
-
-GET_PIC_ABILITIES_2 = {
-    'c_idx': 'GET_PIC_ABILITIES_2',
-    'description': "Get picture abilities (new)",
-    'cmd1': 0x24,
-    'cmd2': 0x12,
-    'cmd3': 0x201,
-    'return_length': 0x474 }
-
-CONTROL_CAMERA_2 = {
-    'c_idx': 'CONTROL_CAMERA_2',
-    'description': "Remote camera control (new)",
-    'cmd1': 0x25,
-    'cmd2': 0x12,
-    'cmd3': 0x201,
-    'return_length': 0x40 }
-
-RETRIEVE_CAPTURE_2 = {
-    'c_idx': 'RETRIEVE_CAPTURE_2',
-    'description': "Download captured image (new)",
-    'cmd1': 0x26,
-    'cmd2': 0x12,
-    'cmd3': 0x202,
-    'return_length': 0x40 }
-
-LOCK_KEYS_2 = {
-    'c_idx': 'LOCK_KEYS_2',
-    'description': "Lock keys (new)",
-    'cmd1': 0x35,
-    'cmd2': 0x12,
-    'cmd3': 0x201,
-    'return_length': 0x5c }
-
-UNLOCK_KEYS_2 = {
-    'c_idx': 'UNLOCK_KEYS_2',
-    'description': "Unlock keys (new)",
-    'cmd1': 0x36,
-    'cmd2': 0x12,
-    'cmd3': 0x201,
-    'return_length': 0x54 }
-
-SET_ATTR_2 = {
-    'c_idx': 'SET_ATTR_2',
-    'description': "Set file attributes (new))",
-    'cmd1': 0x07,
-    'cmd2': 0x11,
-    'cmd3': 0x201,
-    'return_length': 0x54 }
-
-ALL = [GET_FILE, MKDIR, RMDIR, DISK_INFO, FLASH_DEVICE_IDENT, DELETE_FILE_2,
-       GET_DIR, DELETE_FILE, DISK_INFO_2, SET_ATTR, FLASH_DEVICE_IDENT_2,
-       SET_FILE_TIME, IDENTIFY_CAMERA, GET_TIME, SET_TIME, CAMERA_CHOWN,
-       GET_OWNER, CAMERA_CHOWN_2, POWER_STATUS, CONTROL_CAMERA,
-       POWER_STATUS_2, RETRIEVE_CAPTURE, RETRIEVE_PREVIEW, UNKNOWN_FUNCTION,
-       EOS_LOCK_KEYS, EOS_UNLOCK_KEYS, EOS_GET_BODY_ID, GET_PIC_ABILITIES,
-       GENERIC_LOCK_KEYS, EOS_GET_BODY_ID_2, GET_PIC_ABILITIES_2,
-       CONTROL_CAMERA_2, RETRIEVE_CAPTURE_2, LOCK_KEYS_2, UNLOCK_KEYS_2,
-       SET_ATTR_2]
-
-RC_INIT = {
-    'c_idx': 'CONTROL_INIT',
-    'description': "Camera control init",
-    'value': 0x00,
-    'cmd_len': 0x18,
-    'return_length': 0x1c }
-
-RC_SHUTTER_RELEASE = {
-    'c_idx': 'CONTROL_SHUTTER_RELEASE',
-    'description': "Release shutter",
-    'value': 0x04,
-    'cmd_len': 0x18,
-    'return_length': 0x1c }
-
-RC_SET_PARAMS = {
-    'c_idx': 'CONTROL_SET_PARAMS',
-    'description': "Set release params",
-    'value': 0x07,
-    'cmd_len': 0x3c,
-    'return_length': 0x1c }
-
-RC_SET_TRANSFER_MODE = {
-    'c_idx': 'CONTROL_SET_TRANSFER_MODE',
-    'description': "Set transfer mode",
-    'value': 0x09,
-    'cmd_len': 0x1c,
-    'return_length': 0x1c }
-
-RC_GET_PARAMS = {
-    'c_idx': 'CONTROL_GET_PARAMS',
-    'description': "Get release params",
-    'value': 0x0a,
-    'cmd_len': 0x18,
-    'return_length': 0x4c }
-
-RC_GET_ZOOM_POS = {
-    'c_idx': 'CONTROL_GET_ZOOM_POS',
-    'description': "Get zoom position",
-    'value': 0x0b,
-    'cmd_len': 0x18,
-    'return_length': 0x20 }
-
-RC_SET_ZOOM_POS = {
-    'c_idx': 'CONTROL_SET_ZOOM_POS',
-    'description': "Set zoom position",
-    'value': 0x0c,
-    'cmd_len': 0x1c,
-    'return_length': 0x1c }
-
-RC_GET_AVAILABLE_SHOT = {
-    'c_idx': 'CONTROL_GET_AVAILABLE_SHOT',
-    'description': "Get available shot",
-    'value': 0x0d,
-    'cmd_len': 0x18,
-    'return_length': 0x20 }
-
-RC_GET_CUSTOM_FUNC = {
-    'c_idx': 'CONTROL_GET_CUSTOM_FUNC',
-    'description': "Get custom func.",
-    'value': 0x0f,
-    'cmd_len': 0x22,
-    'return_length': 0x26 }
-
-RC_GET_EXT_PARAMS_SIZE = {
-    'c_idx': 'CONTROL_GET_EXT_PARAMS_SIZE',
-    'description': "Get ext. release params size",
-    'value': 0x10,
-    'cmd_len': 0x1c,
-    'return_length': 0x20 }
-
-RC_GET_EXT_PARAMS = {
-    'c_idx': 'CONTROL_GET_EXT_PARAMS',
-    'description': "Get ext. release params",
-    'value': 0x12,
-    'cmd_len': 0x1c,
-    'return_length': 0x2c }
-
-RC_SET_EXT_PARAMS = {
-    'c_idx': 'CONTROL_SET_EXT_PARAMS',
-    'description': "Set extended params",
-    'value': 0x13,
-    'cmd_len': 0x15,
-    'return_length': 0x1c }
-
-RC_EXIT = {
-    'c_idx': 'CONTROL_EXIT',
-    'description': "Exit release control",
-    'value': 0x01,
-    'cmd_len': 0x18,
-    'return_length': 0x1c }
-
-RC_UNKNOWN_1 = {
-    'c_idx': 'CONTROL_UNKNOWN_1',
-    'description': "Unknown remote subcode",
-    'value': 0x1b,
-    'cmd_len': 0x08,
-    'return_length': 0x5e }
-
-RC_UNKNOWN_2 = {
-    'c_idx': 'CONTROL_UNKNOWN_2',
-    'description': "Unknown remote subcode",
-    'value': 0x1c,
-    'cmd_len': 0x00,
-    'return_length': 0x00 }
-
-RC_VIEWFINDER_START = {
-    'c_idx': 'CONTROL_VIEWFINDER_START',
-    'description': "Start viewfinder",
-    'value': 0x02,
-    'cmd_len': 0x00,
-    'return_length': 0x00 }
-
-RC_VIEWFINDER_STOP = {
-    'c_idx': 'CONTROL_VIEWFINDER_STOP',
-    'description': "Stop viewfinder",
-    'value': 0x03,
-    'cmd_len': 0x00,
-    'return_length': 0x00 }
-
-RC_SET_CUSTOM_FUNC = {
-    'c_idx': 'CONTROL_SET_CUSTOM_FUNC',
-    'description': "Set custom func.",
-    'value': 0x0e,
-    'cmd_len': 0x00,
-    'return_length': 0x00 }
-
-RC_GET_EXT_PARAMS_VER = {
-    'c_idx': 'CONTROL_GET_EXT_PARAMS_VER',
-    'description': "Get extended params version",
-    'value': 0x11,
-    'cmd_len': 0x00,
-    'return_length': 0x00 }
-
-RC_SELECT_CAM_OUTPUT = {
-    'c_idx': 'CONTROL_SELECT_CAM_OUTPUT',
-    'description': "Select camera output",
-    'value': 0x14,
-    'cmd_len': 0x00,
-    'return_length': 0x00 }
+MAX_CHUNK_SIZE = 0x1400
 
 class TransferMode(Bitfield):
     THUMB_TO_PC    = 0x01
@@ -536,162 +87,345 @@ class FSEntry(object):
     def __str__(self):
         return self.full_path
 
-class ReleaseParams(Bitfield):
-    APERTURE_F1_2 = 0x0d
-    APERTURE_F1_4 = 0x10
-    APERTURE_F1_6 = 0x13
-    APERTURE_F1_8 = 0x15
-    APERTURE_F2_0 = 0x18
-    APERTURE_F2_2 = 0x1b
-    APERTURE_F2_5 = 0x1d
-    APERTURE_F2_8 = 0x20
-    APERTURE_F3_2 = 0x23
-    APERTURE_F3_5 = 0x25
-    APERTURE_F4_0 = 0x28
-    APERTURE_F4_5 = 0x2b
-    APERTURE_F5_0 = 0x2d
-    APERTURE_F5_6 = 0x30
-    APERTURE_F6_3 = 0x33
-    APERTURE_F7_1 = 0x35
-    APERTURE_F8 = 0x38
-    APERTURE_F9 = 0x3b
-    APERTURE_F10 = 0x3d
-    APERTURE_F11 = 0x40
-    APERTURE_F13 = 0x43
-    APERTURE_F14 = 0x45
-    APERTURE_F16 = 0x48
-    APERTURE_F18 = 0x4b
-    APERTURE_F20 = 0x4d
-    APERTURE_F22 = 0x50
-    APERTURE_F25 = 0x53
-    APERTURE_F29 = 0x55
-    APERTURE_F32 = 0x58
+class CanonUSB(object):
+    """Communicate with a Canon camera, old style.
 
-    SHUTTER_SPEED_BULB = 0x04
-    SHUTTER_SPEED_30_SEC = 0x10
-    SHUTTER_SPEED_25_SEC = 0x13
-    SHUTTER_SPEED_20_SEC = 0x15
-    SHUTTER_SPEED_15_SEC = 0x18
-    SHUTTER_SPEED_13_SEC = 0x1b
-    SHUTTER_SPEED_10_SEC = 0x1d
-    SHUTTER_SPEED_8_SEC = 0x20
-    SHUTTER_SPEED_6_SEC = 0x23
-    SHUTTER_SPEED_5_SEC = 0x25
-    SHUTTER_SPEED_4_SEC = 0x28
-    SHUTTER_SPEED_3_2_SEC = 0x2b
-    SHUTTER_SPEED_2_5_SEC = 0x2d
-    SHUTTER_SPEED_2_SEC = 0x30
-    SHUTTER_SPEED_1_6_SEC = 0x32
-    SHUTTER_SPEED_1_3_SEC = 0x35
-    SHUTTER_SPEED_1_SEC = 0x38
-    SHUTTER_SPEED_0_8_SEC = 0x3b
-    SHUTTER_SPEED_0_6_SEC = 0x3d
-    SHUTTER_SPEED_0_5_SEC = 0x40
-    SHUTTER_SPEED_0_4_SEC = 0x43
-    SHUTTER_SPEED_0_3_SEC = 0x45
-    SHUTTER_SPEED_1_4 = 0x48
-    SHUTTER_SPEED_1_5 = 0x4b
-    SHUTTER_SPEED_1_6 = 0x4d
-    SHUTTER_SPEED_1_8 = 0x50
-    SHUTTER_SPEED_1_10 = 0x53
-    SHUTTER_SPEED_1_13 = 0x55
-    SHUTTER_SPEED_1_15 = 0x58
-    SHUTTER_SPEED_1_20 = 0x5b
-    SHUTTER_SPEED_1_25 = 0x5d
-    SHUTTER_SPEED_1_30 = 0x60
-    SHUTTER_SPEED_1_40 = 0x63
-    SHUTTER_SPEED_1_50 = 0x65
-    SHUTTER_SPEED_1_60 = 0x68
-    SHUTTER_SPEED_1_80 = 0x6b
-    SHUTTER_SPEED_1_100 = 0x6d
-    SHUTTER_SPEED_1_125 = 0x70
-    SHUTTER_SPEED_1_160 = 0x73
-    SHUTTER_SPEED_1_200 = 0x75
-    SHUTTER_SPEED_1_250 = 0x78
-    SHUTTER_SPEED_1_320 = 0x7b
-    SHUTTER_SPEED_1_400 = 0x7d
-    SHUTTER_SPEED_1_500 = 0x80
-    SHUTTER_SPEED_1_640 = 0x83
-    SHUTTER_SPEED_1_800 = 0x85
-    SHUTTER_SPEED_1_1000 = 0x88
-    SHUTTER_SPEED_1_1250 = 0x8b
-    SHUTTER_SPEED_1_1600 = 0x8d
-    SHUTTER_SPEED_1_2000 = 0x90
-    SHUTTER_SPEED_1_2500 = 0x93
-    SHUTTER_SPEED_1_3200 = 0x95
-    SHUTTER_SPEED_1_4000 = 0x98
-    SHUTTER_SPEED_1_5000 = 0x9a
-    SHUTTER_SPEED_1_6400 = 0x9d
-    SHUTTER_SPEED_1_8000 = 0xA0
+    This may someday be used for another old Canon, not my G3. It should
+    be as generic as possible. Code is heavily based on
+    http://www.graphics.cornell.edu/~westin/canon/index.html
+    and gphoto2's source.
 
-    ISO_50 = 0x40
-    ISO_100 = 0x48
-    ISO_125 = 0x4b
-    ISO_160 = 0x4d
-    ISO_200 = 0x50
-    ISO_250 = 0x53
-    ISO_320 = 0x55
-    ISO_400 = 0x58
-    ISO_500 = 0x5b
-    ISO_640 = 0x5d
-    ISO_800 = 0x60
-    ISO_1000 = 0x63
-    ISO_1250 = 0x65
-    ISO_1600 = 0x68
-    ISO_3200 = 0x70
+    """
 
-    AUTO_FOCUS_ONE_SHOT = 0
-    AUTO_FOCUS_AI_SERVO = 1
-    AUTO_FOCUS_AI_FOCUS = 2
-    MANUAL_FOCUS = 3
+    class InterruptPoller(threading.Thread):
+        def __init__(self, usb, size=None, chunk=0x10, timeout=None):
+            threading.Thread.__init__(self)
+            self.usb = usb
+            self.should_stop = False
+            self.size = size
+            self.chunk = chunk
+            self.received = array('B')
+            self.timeout = int(timeout) if timeout is not None else 150
+            self.setDaemon(True)
 
-    FLASH_MODE_OFF = 0
-    FLASH_MODE_ON = 1
-    FLASH_MODE_AUTO = 2
+        def run(self):
+            errors = 0
+            while errors < 10:
+                if self.should_stop: return
+                try:
+                    chunk = self.usb._poll_interrupt(self.chunk, self.timeout)
+                    if chunk:
+                        self.received.extend(chunk)
+                    if (self.size is not None
+                            and len(self.received) >= self.size):
+                        _log.info("poller got 0x{:x} bytes, needed 0x{:x}"
+                                  ", exiting".format(len(self.received),
+                                                     self.size))
+                        return
+                    if self.should_stop:
+                        _log.info("poller stop requested, exiting")
+                        return
+                    time.sleep(0.1)
+                except (USBError, ) as e:
+                    if e.errno == 110: # timeout
+                        continue
 
-    BEEP_OFF = 0x00
-    BEEP_ON = 0x01
+                    _log.warn("poll: {}".format(e))
+                    errors += 1
+            _log.info("poller got too many errors, exiting")
 
-    EXPOSURE_PLUS_2 = 0x10
-    EXPOSURE_PLUS_1_ = 0x0d
-    EXPOSURE_PLUS_1_1_2 = 0x0c
-    EXPOSURE_PLUS_1_1_3 = 0x0b
-    EXPOSURE_PLUS_1 = 0x08
-    EXPOSURE_PLUS_0_2_3 = 0x05
-    EXPOSURE_PLUS_0_1_2 = 0x04
-    EXPOSURE_PLUS_0_1_3 = 0x03
-    EXPOSURE_ZERO = 0x00
-    EXPOSURE_MINUS_0_1_3 = 0xfd
-    EXPOSURE_MINUS_0_1_2 = 0xfc
-    EXPOSURE_MINUS_0_2_3 = 0xfb
-    EXPOSURE_MINUS_1 = 0xf8
-    EXPOSURE_MINUS_1_1_3 = 0xf5
-    EXPOSURE_MINUS_1_1_2 = 0xf4
-    EXPOSURE_MINUS_1_2_3 = 0xf3
-    EXPOSURE_MINUS_2 = 0xf0
+        def stop(self):
+            self.should_stop = True
+            self.join()
 
-    IMAGE_FORMAT_RAW = (0x04, 0x02, 0x00)
-    IMAGE_FORMAT_SMALL_NORMAL_JPEG = (0x02, 0x01, 0x02)
-    IMAGE_FORMAT_SMALL_FINE_JPEG = (0x03, 0x01, 0x02)
-    IMAGE_FORMAT_MEDIUM_NORMAL_JPEG = (0x02, 0x01, 0x01)
-    IMAGE_FORMAT_MEDIUM_FINE_JPEG = (0x03, 0x01, 0x01)
-    IMAGE_FORMAT_LARGE_NORMAL_JPEG = (0x02, 0x01, 0x00)
-    IMAGE_FORMAT_LARGE_FINE_JPEG = (0x03, 0x01, 0x00)
-    IMAGE_FORMAT_RAW_AND_SMALL_NORMAL_JPEG = (0x24, 0x12, 0x20)
-    IMAGE_FORMAT_RAW_AND_SMALL_FINE_JPEG = (0x34, 0x12, 0x20)
-    IMAGE_FORMAT_RAW_AND_MEDIUM_NORMAL_JPEG = (0x24, 0x12, 0x10)
-    IMAGE_FORMAT_RAW_AND_MEDIUM_FINE_JPEG = (0x34, 0x12, 0x10)
-    IMAGE_FORMAT_RAW_AND_LARGE_NORMAL_JPEG = (0x24, 0x12, 0x00)
-    IMAGE_FORMAT_RAW_AND_LARGE_FINE_JPEG = (0x34, 0x12, 0x00)
+    def __init__(self, device):
+        self.device = device
+        self.device.default_timeout = 500
+        self.iface = iface = device[0][0,0]
 
-    _size = 0x2f
-    image_format = Flag(1, 3)
-    flash = Flag(0x06, on=0x01, off=0x00)
-    beep = Flag(0x07, on=0x01, off=0x00)
-    focus_mode = Flag(0x12)
-    iso = Flag(0x1a)
-    aperture = Flag(0x1c)
-    shutter_speed = Flag(0x1e)
-    exposure_bias = Flag(0x20)
-    shooting_mode = Flag(0x08)
+        # Other models may have different endpoint addresses
+        self.ep_in = usb.util.find_descriptor(iface, bEndpointAddress=0x81)
+        self.ep_out = usb.util.find_descriptor(iface, bEndpointAddress=0x02)
+        self.ep_int = usb.util.find_descriptor(iface, bEndpointAddress=0x83)
+        self._cmd_serial = 0
+        self._poller = None
+
+    @contextmanager
+    def timeout_ctx(self, to):
+        old = self.device.default_timeout
+        self.device.default_timeout = to
+        _log.info("timeout_ctx: {} -> {}".format(old, to))
+        try:
+            yield
+        finally:
+            _log.info("timeout_ctx: back to {}".format(old))
+            self.device.default_timeout = old
+
+    def poller(self, size=None, timeout=None):
+        if self._poller:
+            self._poller.stop()
+        self._poller = self.InterruptPoller(self, size, timeout=timeout)
+        self._poller.start()
+        return self._poller
+
+    def is_ready(self):
+        """Check if the camera has been initialized by issuing IDENTIFY_CAMERA.
+
+        gphoto2 source claims that this command doesn't change the state
+        of the camera and can safely be issued without any side effects.
+
+        """
+        try:
+            self.do_command(commands.IDENTIFY_CAMERA)
+            return True
+        except (USBError, CanonError):
+            return False
+
+    ready = property(is_ready)
+
+    def initialize(self):
+        """Bring the camera into a state where it accepts commands.
+        """
+        try:
+            cfg = self.device.get_active_configuration()
+            _log.debug("Configuration %s already set.", cfg.bConfigurationValue)
+        except USBError as e:
+            _log.debug("Will attempt to set configuration now, {}".format(e))
+            self.device.set_configuration()
+            self.device.set_interface_altsetting()
+
+        for ep in (self.ep_in, self.ep_int, self.ep_out):
+            try:
+                usb.control.clear_feature(self.device, usb.control.ENDPOINT_HALT, ep)
+            except USBError, e:
+                _log.info("Clearing HALT on {} failed: {}".format(ep, e))
+
+        p = self.poller()
+        # do the init dance
+        with self.timeout_ctx(5000):
+            camstat = self._control_read(0x55, 1).tostring()
+            if camstat not in ('A', 'C'):
+                raise CanonError('Some kind of init error, camstat: %s', camstat)
+
+            msg = self._control_read(0x01, 0x58)
+            if camstat == 'A':
+                _log.debug("Camera was already active")
+                self._control_read(0x04, 0x50)
+                return camstat
+
+        _log.debug("Camera woken up, initializing")
+        msg[0:0x40] = array('B', [0]*0x40)
+        msg[0] = 0x10
+        msg[0x40:] = msg[-0x10:]
+        self._control_write(0x11, msg)
+        self._bulk_read(0x44)
+
+        read = 0
+        read += len(self._poll_interrupt(0x10))
+        while read < 0x10:
+            time.sleep(0.02)
+            read += len(self._poll_interrupt(0x10))
+
+        cnt = 0
+        while cnt < 4:
+            cnt += 1
+            try:
+                self.do_command(commands.IDENTIFY_CAMERA)
+                return camstat
+            except (USBError, CanonError), e:
+                _log.debug("identify after init fails: {}".format(e))
+
+        raise CanonError("identify_camera failed too many times")
+
+
+    def _control_read(self, value, data_length=0, timeout=None):
+        bRequest = 0x04 if data_length > 1 else 0x0c
+        _log.info("CTRL IN (req: 0x{:x} wValue: 0x{:x}) reading 0x{:x} bytes"
+                   .format(bRequest, value, data_length))
+        response = self.device.ctrl_transfer(
+                                 0xc0, bRequest, wValue=value, wIndex=0,
+                                 data_or_wLength=data_length, timeout=timeout)
+        if len(response) != data_length:
+            raise CanonError("incorrect response length form camera")
+        _log.debug('\n' + hexdump(response))
+        return response
+
+    def _control_write(self, wValue, data='', timeout=None):
+        bRequest = 0x04 if len(data) > 1 else 0x0c
+        _log.info("CTRL OUT (rt: 0x{:x}, req: 0x{:x}, wValue: 0x{:x}) 0x{:x} bytes"
+                  .format(0x40, bRequest, wValue, len(data)))
+        _log.debug("\n" + hexdump(data))
+        i = self.device.ctrl_transfer(0x40, bRequest, wValue=wValue, wIndex=0,
+                                      data_or_wLength=data, timeout=timeout)
+        if i != len(data):
+            raise CanonError("control write incomplete")
+        return i
+
+    def _bulk_read(self, size, timeout=None):
+        start = time.time()
+        data = self.ep_in.read(size, timeout)
+        end = time.time()
+        data_size = len(data)
+        if not data_size == size:
+            _log.warn("BAD bulk in 0x{:x} bytes instead of 0x{:x}"
+                      .format(data_size, size))
+            _log.debug('\n' + hexdump(data))
+            raise CanonError("unexpected data length ({} instead of {})"
+                          .format(len(data), size))
+        _log.info("bulk in got {} (0x{:x}) b in {:.6f} sec"
+                  .format(len(data), len(data), end-start))
+        _log.debug("\n" + hexdump(data))
+        return data
+
+    def _poll_interrupt(self, size, timeout=100):
+        try:
+            data = self.ep_int.read(size, timeout)
+            if data is not None and len(data):
+                _log.info("Interrupt got {} bytes".format(len(data)))
+                _log.debug("\n" + hexdump(data))
+                return data
+            return array('B')
+        except usb.core.USBError, e:
+            _log.info("poll %s: %s", size, e)
+            return array('B')
+
+    def _get_packet(self, cmd, payload):
+        payload_length = len(payload) if payload else 0
+        request_size = array('B', struct.pack('<I', payload_length + 0x10))
+        self._cmd_serial += (self._cmd_serial % 4) + 1 # just playin'
+        if self._cmd_serial > 65535: self._cmd_serial = 0
+        serial = array('B', struct.pack('<I', self._cmd_serial))
+        serial[2] = 0x12
+
+        # what we dump on the pipe
+        packet = array('B', [0] * 0x50) # 80 byte command block
+
+        packet[0:4] = request_size
+        packet[0x40] = 2 # just works, gphoto2 does magic for other camera classes
+        packet[0x44] = cmd['cmd1'];
+        packet[0x47] = cmd['cmd2'];
+        packet[4:8] = array('B', struct.pack('<I', cmd['cmd3']))
+        packet[0x48:0x48+4] = request_size # again
+        packet[0x4c:0x4c+4] = serial
+
+        if payload is not None:
+            packet.extend(array('B', payload))
+
+        return packet
+
+    def do_command_iter(self, cmd, payload=None, full=False):
+        """Run a command on the camera.
+
+        TODO: this
+        """
+        packet = self._get_packet(cmd, payload)
+        _log.info("{0[c_idx]:s} (0x{0[cmd1]:x}, 0x{0[cmd2]:x}, 0x{0[cmd3]:x}), "
+                  "retlen 0x{0[return_length]:x} #{1:0}"
+                  .format(cmd, self._cmd_serial))
+
+        self._control_write(0x10, packet)
+
+        # the response
+        # always read first chunk if return_length says so
+        total_read = int(cmd['return_length'])
+        if total_read > MAX_CHUNK_SIZE:
+            first_read = MAX_CHUNK_SIZE
+        elif total_read > 0x40:
+            first_read = (int(total_read) / 0x40) * 0x40
+        else:
+            first_read = total_read
+        remainder_read = total_read - first_read
+
+        data = self._bulk_read(first_read)
+
+        if cmd['cmd3'] == 0x202:
+            # variable-length response
+            resp_len = le32toi(data[6:10])
+            _log.debug("variable response says 0x%x bytes follow",
+                      resp_len)
+            remainder_read = resp_len
+        else:
+            reported_read = le32toi(data[0:4]) + 0x40
+            if reported_read != total_read:
+                _log.warn("bad response length, reported 0x{:x} vs. 0x{:x}"
+                          .format(reported_read, total_read))
+                remainder_read = reported_read - first_read
+            else:
+                _log.info("first chunk 0x{:x}, 0x{:x} to go, 0x{:x} reported"
+                          .format(first_read, remainder_read, reported_read))
+
+        if full:
+            yield data[:0x40]
+
+        data = data[0x40:]
+
+        if len(data) >= 0x14:
+            status = le32toi(data, 0x10)
+            _log.info("{0[c_idx]:s} #{1:0} : status {2:x}"
+                      .format(cmd, self._cmd_serial, status))
+        if len(data):
+            yield data
+
+        _log.debug("Chunked read of 0x{:x} bytes".format(remainder_read))
+        read = 0
+        while read < remainder_read:
+            remaining = remainder_read - read
+            if remaining > MAX_CHUNK_SIZE:
+                chunk_size = MAX_CHUNK_SIZE
+            elif remaining > 0x40:
+                chunk_size = remaining - (remaining % 0x40)
+            else:
+                chunk_size = remaining
+
+            _log.debug("chunked reading 0x{:x}".format(chunk_size))
+            data = self._bulk_read(chunk_size)
+            if len(data) != chunk_size:
+                raise CanonError("unable to read requested data")
+
+            if read <= 0x10 and (chunk_size + read) >= 0x14:
+                status = le32toi(data, 0x10-read)
+                _log.info("{0[c_idx]:s} #{1:0} : status {2:x}"
+                          .format(cmd, self._cmd_serial, status))
+
+            read += chunk_size
+            yield data
+
+    def do_command(self, cmd, payload=None, full=False):
+        data = array('B')
+        for chunk in self.do_command_iter(cmd, payload, full):
+            data.extend(chunk)
+        #        expected = first_read + remainder_read
+        #        if expected != actual_read:
+        #            raise CanonError("didn't get expected response length, "
+        #                          " expected %s (0x%x) but got %s (0x%x)" % (
+        #                             expected, expected, actual_read, actual_read))
+        # TODO: implement the check gphoto2 does when it sees the camera
+        #       reporting a return_length different than the expected for
+        #       this command.
+        #if len(data) >= 0x50:
+        #    reported_len = struct.unpack('<I', data[0x48:0x48+4].tostring())
+        #    if reported_len != len(data):
+        #        import warnings; warnings.warn()
+        _log.info("{0[c_idx]:s} #{1:0} -> 0x{2:x} bytes".format(
+                                          cmd, self._cmd_serial, len(data)))
+        return data
+
+
+    def do_command_rc(self, rc_cmd, arg1=None, arg2=None, payload=None):
+        """Do a remote-control command
+
+        See http://www.graphics.cornell.edu/~westin/canon/ch03s18.html
+        """
+        assert not ((payload is not None) and (arg1 is not None))
+        cmd = commands.CONTROL_CAMERA.copy()
+        cmd['return_length'] += rc_cmd['return_length']
+        _log.info("RC {0[c_idx]:s} retlen 0x{0[return_length]:x}"
+                  .format(rc_cmd, cmd))
+        if payload is None:
+            payload = array('B', struct.pack('<I', rc_cmd['value']))
+            if arg1 is None: arg1 = 0x00
+            payload.extend(itole32a(arg1))
+            if arg2 is not None:
+                payload.extend(itole32a(arg2))
+        return self.do_command(cmd, payload, True)
 

@@ -1,5 +1,6 @@
 from array import array
 import unittest
+
 from canon import util
 
 class BitfieldTest(unittest.TestCase):
@@ -67,3 +68,6 @@ class BitfieldTest(unittest.TestCase):
 class UtilTest(unittest.TestCase):
     """TODO: this"""
     pass
+
+if __name__ == '__main__':
+    unittest.main()

@@ -1,4 +1,11 @@
-USB Canon G3
+TODO
+====
+
+ * test fs, rc.start and .stop work
+ * set image size (probably with transfer type?)
+ * set shooting mode, manual!
+ * set capture settings: iso, speed, aperture, compensation
+ * capture and download in one go (transfertype.pc.full)
 
 USB pcap and Python
 http://wiki.wireshark.org/Tools lists
@@ -24,10 +31,36 @@ wLength is simply the length of data.
 Match remote control commands in wireshark
 (usb.capdata[4:4] == 01:02:00:00) && (usb.capdata[68:4] == 13:00:00:12)
 
-How to sniff
-http://hackaday.com/2009/03/19/usb-sniffing-in-linux/
-http://biot.com/blog/usb-sniffing-on-linux
-http://wiki.wireshark.org/CaptureSetup/USB
+... with RC subcommand
+(usb.capdata[4:4] == 01:02:00:00) && (usb.capdata[68:4] == 13:00:00:12) && (usb.capdata[80:1] == SUBCMD:)
+
+SET_ZOOM_POS
+(usb.capdata[4:4] == 01:02:00:00) && (usb.capdata[68:4] == 13:00:00:12) && (usb.capdata[80:1] == 0B)
+
+Windows initialization RC commands, win_bootstrap.pcap
+------------------------------------------------------
+0x00 -> init
+0x09 -> set transfer mode 0x04 0x00
+0x0c -> set zoom position 0x04 0x00
+0x0a -> rc get params 0x00
+0x10 -> get ext params size 0x00
+0x12 -> get ext params 0x04 0x2c
+0x0b -> get zoom position 0x00
+0x09 -> set transfer mode 0x04 0x03
+0x09 -> set transfer mode 0x04 0x03
+0x1b -> unknown1
+0x1c -> unknown2
+0x1b -> unknown1
+0x1c -> unknown2
+0x1d -> not even documented
+0x1d -> many times with different arguments
+0x0a ->
+0x10
+0x12
+0x0a
+
+
+
 
 CMD MACRO ON
 0000   48 00 00 00 01 02 00 00 00 00 00 00 00 00 00 00

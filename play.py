@@ -6,14 +6,12 @@ bpython2 -i sandbox.py
 """
 import sys
 import os
-from usb.core import Device
 import inspect
 
 if len(sys.argv) > 1:
     os.environ['PYUSB_DEBUG_LEVEL'] = sys.argv[1]
 
 import logging
-import threading
 import time
 from array import array
 from pprint import pprint
@@ -23,7 +21,7 @@ import usb.control
 import usb.util
 
 import canon
-from canon import protocol, util
+from canon import camera, commands, protocol, util
 from canon.util import hexdump
 
 log = canon.log
@@ -32,19 +30,19 @@ canon.log.setLevel(logging.DEBUG)
 #_h = logging.StreamHandler(open('play.log', 'a+'))
 _h = logging.StreamHandler()
 _h.setFormatter(logging.Formatter(
-    "%(created)-16.5f %(filename)s:%(lineno)-5s %(levelname)-6s %(message)s"))
+    "%(created)-16.5f %(levelname)-6s %(filename) "
+    "10s:%(lineno)-5s %(message)s"))
 canon.log.addHandler(_h)
-
 
 #_usb_log = logging.getLogger('usb')
 #_usb_log.setLevel(logging.DEBUG)
 #_usb_log.addHandler(_h)
 
+INFO = logging.INFO
+DEBUG = logging.DEBUG
 
 cam = None
 
-INFO = logging.INFO
-DEBUG = logging.DEBUG
 
 def loglevel(ll=None):
     if ll is not None:
@@ -60,7 +58,7 @@ def replay():
 
 def init():
     global cam
-    cam = canon.find()
+    cam = camera.find()
     if not cam:
         return
     cam.initialize()
