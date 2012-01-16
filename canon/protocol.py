@@ -11,66 +11,21 @@ TODO: Pythonify this code: commands should be objects with the
 from canon.util import Bitfield, Flag, BooleanFlag
 import itertools
 
-_codes = {}
+GET_FILE = {
+    'c_idx': 'GET_FILE',
+    'description': "Get file",
+    'cmd1': 0x01,
+    'cmd2': 0x11,
+    'cmd3': 0x202,
+    'return_length': 0x40 }
 
-class _code(object):
-    _by_code = {}
-    def __init__(self, code, description):
-        global _codes
-        _codes[code] = self
-        self.code = code
-        self.description = description
-    def __repr__(self):
-        return '0x%08x "%s"' % (self.code, self.description)
-
-class status(object):
-    OK = _code(0x00000000, 'Success.')
-    NOT_FOUND = _code(0x02000022, 'File not found.')
-    FILE_PROTECTED = _code(0x02000029, "File was protected")
-    FS_FULL = _code(0x0200002a, "Compact Flash card full (on set transfer mode and release shutter)")
-    LOCK_KEYS_FAILED = _code(0x02000081, "EOS lock keys failed, e.g. shutter release is half-depressed or camera is in review or menu mode.")
-    UNLOCK_KEYS_FAILED = _code(0x02000082, "EOS unlock keys failed, e.g. tried to unlock keys when they weren't locked to begin with.")
-    RC_INIT_FAILED = _code(0x02000085, "camera control initialization failed. Couldn't extend lens (on G2) Camera was left in camera control modeFor D60: we just filled the CF card (on next camera control initialization; power cycle clears this)")
-    BAD_REQUEST = _code(0x02000086, "Path not found or invalid parameters. Indicates either that the pathname wasn't found, e.g. for Get Directory, or that the command block was in error, e.g. the length wasn't correct, or the command for Set File Attributes had only one string, rather than a pathname followed by a filename.")
-    NEW_SHIT = _code(0x00000086, "Returned by camera in newer protocol (e.g. EOS 20D) from Unlock keys when keys weren't locked.")
-    NO_FLASH = _code(0x02000087, "No Compact Flash card")
-
-    @classmethod
-    def lookup(cls, code):
-        global _codes
-        return _codes.get(code)
-
-class Command(object):
-    def run(self, usb):
-        # construct payload
-        # send, receive
-        # parse, return
-        pass
-
-class StorageCommand(Command):
-    cmd2 = 0x11
-
-class ControlCommand(Command):
-    cmd2 = 0x12
-
-class RemoteControlSubcommand(ControlCommand):
-    cmd1 = 0x13
-
-class LongCommandMixin(object):
-    cmd3 = 0x202
-    retlen = 0x40
-
-class FixedCommandMixin(object):
-    cmd3 = 0x201
-
-class GetFileCmd(StorageCommand, LongCommandMixin):
-    cmd1 = 0x01
-    description = "Get file"
-
-class MakeDirectoryCmd(StorageCommand, FixedCommandMixin):
-    description = "Make directory"
-    cmd1 = 0x05
-    retlen = 0x54
+MKDIR = {
+    'c_idx': 'MKDIR',
+    'description': "Make directory",
+    'cmd1': 0x05,
+    'cmd2': 0x11,
+    'cmd3': 0x201,
+    'return_length': 0x54 }
 
 RMDIR = {
     'c_idx': 'RMDIR',
