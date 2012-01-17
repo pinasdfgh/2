@@ -1,27 +1,27 @@
+#  This file is part of canon-remote.
+#  Copyright (C) 2011-2012 Kiril Zyapkov <kiril.zyapkov@gmail.com>
 #
-# This file is part of canon-remote
-# Copyright (C) 2011 Kiril Zyapkov
+#  This program is free software: you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation, either version 3 of the License, or
+#  (at your option) any later version.
 #
-# canon-remote is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
 #
-# canon-remote is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with canon-remote.  If not, see <http://www.gnu.org/licenses/>.
-#
+#  You should have received a copy of the GNU General Public License
+#  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 
 import time
 import logging
 from array import array
 
-from canon import commands, protocol
+from canon import commands, protocol, CanonError
 from canon.util import Bitfield, Flag
+from functools import wraps
 
 _log = logging.getLogger(__name__)
 
@@ -200,7 +200,13 @@ class CaptureSettings(Bitfield):
     exposure_bias = Flag(0x20)
     shooting_mode = Flag(0x08)
 
-
+def require_active_capture(func):
+    @wraps(func)
+    def wrapper(inst, *args, **kw):
+        if inst.active:
+            return func(inst, *args, **kw)
+        raise CanonError("{} only works when capture is active"
+                         .format(func.__name__))
 
 class CanonCapture(object):
     def __init__(self, usb):
@@ -212,14 +218,16 @@ class CanonCapture(object):
 
     def start(self, force=False):
         if self._in_rc and not force:
-            _log.info("remote control already active, force me")
+            _log.info("remote capture already active, force me")
             return
         for _ in range(3):
             self._usb._poll_interrupt(0x10)
-            time.sleep(0.01)
-        # if keys are not locked RC INIT fails!
+            time.sleep(0.3)
+
+        # if keys are not locked RC INIT fails, maybe
         self._usb.do_command(commands.GENERIC_LOCK_KEYS)
-        with self._usb.timeout_ctx(15000):
+        # 5 seconds seem more than enough
+        with self._usb.timeout_ctx(5000):
             self._usb.do_command_rc(commands.RC_INIT)
             self._in_rc = True
 
@@ -235,27 +243,11 @@ class CanonCapture(object):
     @property
     def settings(self):
         if not self._settings:
-            data = self._usb.do_command_rc(commands.RC_GET_PARAMS)
-            # RELEASE_PARAMS_LEN in canon.h
-            self._settings = CaptureSettings(data[0x5c:0x5c+0x2f])
-            _log.info("Capture settings: {}".format(self._settings))
+            return self._get_capture_settings()
         return self._settings
 
-    @settings.setter
-    def settings(self, s):
-        assert isinstance(s, array)
-        assert len(s) == CaptureSettings._size
-        assert s.itemsize == 1
-        data = self._usb.do_command_rc(commands.RC_SET_PARAMS,
-                                      payload=(array('B', [0]*8) + s))
-
-    def set_release_params(self, params):
-        """canon.c: canon_int_set_release_params"""
-
+    @property
     def get_transfermode(self):
-        if not self._in_rc:
-            _log.warn("rc_get_transfermode works after rc_start")
-            return None
         self._usb.do_command_rc(commands.RC_GET_PARAMS, 0x04, 0x00)
 
     def set_transfermode(self, flags):
@@ -265,7 +257,7 @@ class CanonCapture(object):
             flags = int(flags)
         self._usb.do_command_rc(commands.RC_SET_TRANSFER_MODE, 0x04, flags)
 
-    def rc_capture(self):
+    def capture(self):
         """
         canon_int_capture_image()
             canon_int_start_remote_control()
@@ -289,3 +281,11 @@ class CanonCapture(object):
                 _log.warn("Capture is taking longer than 10 seconds ...")
                 return
             time.sleep(1)
+
+    def _get_capture_settings(self):
+        data = self._usb.do_command_rc(commands.RC_GET_PARAMS)
+        # RELEASE_PARAMS_LEN in canon.h
+        self._settings = CaptureSettings(data[0x5c:0x5c+0x2f])
+        _log.info("capture settings from camera: {}".format(self._settings))
+        return self._settings
+

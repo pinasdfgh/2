@@ -14,28 +14,30 @@ http://www.mit.edu/~armenb/sharktools/
 USB for Scapy here
 http://comments.gmane.org/gmane.comp.security.scapy.general/4255
 
-Enable wireshark sniffing
-mount -t debugfs / /sys/kernel/debug
-
-Check
-https://bitbucket.org/dwaley/usb-reverse-engineering
-
-gphoto2 --camera="Canon PowerShot G3 (normal mode)" --capture-image-and-download
-
-bmRequestType is 0xC0 during read and 0x40 during write.
-bRequest is 0x4 if length of data is >1, 0x0c otherwise (length >1 ? 0x04 : 0x0C)
-wValue differs between operations.
-wIndex is always 0x00
-wLength is simply the length of data.
+Wireshark
+---------
 
 Match remote control commands in wireshark
+                     cmd3                                  cmd1     cmd2
 (usb.capdata[4:4] == 01:02:00:00) && (usb.capdata[68:4] == 13:00:00:12)
 
 ... with RC subcommand
-(usb.capdata[4:4] == 01:02:00:00) && (usb.capdata[68:4] == 13:00:00:12) && (usb.capdata[80:1] == SUBCMD:)
+  && (usb.capdata[80:1] == SUBCMD:)
 
 SET_ZOOM_POS
 (usb.capdata[4:4] == 01:02:00:00) && (usb.capdata[68:4] == 13:00:00:12) && (usb.capdata[80:1] == 0B)
+
+To enable sniffing
+mount -t debugfs / /sys/kernel/debug
+
+qt-based pcap analizer for usb, shit
+https://bitbucket.org/dwaley/usb-reverse-engineering
+
+Gphoto2
+-------
+
+gphoto2 --camera="Canon PowerShot G3 (normal mode)" --capture-image-and-download
+
 
 Windows initialization RC commands, win_bootstrap.pcap
 ------------------------------------------------------

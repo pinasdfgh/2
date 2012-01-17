@@ -1,20 +1,19 @@
+#  This file is part of canon-remote.
+#  Copyright (C) 2011-2012 Kiril Zyapkov <kiril.zyapkov@gmail.com>
 #
-# This file is part of canon-remote
-# Copyright (C) 2011 Kiril Zyapkov
+#  This program is free software: you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation, either version 3 of the License, or
+#  (at your option) any later version.
 #
-# canon-remote is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
 #
-# canon-remote is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with canon-remote.  If not, see <http://www.gnu.org/licenses/>.
-#
+#  You should have received a copy of the GNU General Public License
+#  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 
 import struct
 import threading
@@ -112,6 +111,13 @@ class CanonUSB(object):
     http://www.graphics.cornell.edu/~westin/canon/index.html
     and gphoto2's source.
 
+    -- need to put that somewhere --
+    bmRequestType is 0xC0 during read and 0x40 during write.
+    bRequest is 0x4 if length of data is >1, 0x0c otherwise (length >1 ? 0x04 : 0x0C)
+    wValue differs between operations.
+    wIndex is always 0x00
+    wLength is simply the length of data.
+
     """
 
     class InterruptPoller(threading.Thread):
@@ -168,14 +174,16 @@ class CanonUSB(object):
         self._poller = None
 
     @contextmanager
-    def timeout_ctx(self, to):
+    def timeout_ctx(self, new):
         old = self.device.default_timeout
-        self.device.default_timeout = to
-        _log.info("timeout_ctx: {} -> {}".format(old, to))
+        self.device.default_timeout = new
+        _log.info("timeout_ctx: {} -> {}".format(old, new))
+        now = time.time()
         try:
             yield
         finally:
-            _log.info("timeout_ctx: back to {}".format(old))
+            _log.info("timeout_ctx: {} <- {}; back in {:.5f} s"
+                      .format(old, new, time.time() - now))
             self.device.default_timeout = old
 
     def poller(self, size=None, timeout=None):
@@ -255,12 +263,12 @@ class CanonUSB(object):
             p.stop()
 
 
-    def _control_read(self, value, data_length=0, timeout=None):
+    def _control_read(self, wValue, data_length=0, timeout=None):
         bRequest = 0x04 if data_length > 1 else 0x0c
         _log.info("CTRL IN (req: 0x{:x} wValue: 0x{:x}) reading 0x{:x} bytes"
-                   .format(bRequest, value, data_length))
+                   .format(bRequest, wValue, data_length))
         response = self.device.ctrl_transfer(
-                                 0xc0, bRequest, wValue=value, wIndex=0,
+                                 0xc0, bRequest, wValue=wValue, wIndex=0,
                                  data_or_wLength=data_length, timeout=timeout)
         if len(response) != data_length:
             raise CanonError("incorrect response length form camera")
@@ -297,16 +305,20 @@ class CanonUSB(object):
     def _poll_interrupt(self, size, timeout=100):
         data = self.ep_int.read(size, timeout)
         if data is not None and len(data):
-            _log.info("Interrupt got {} bytes".format(len(data)))
+            dlen = len(data)
+            _log.info("_poll_interrupt got {} 0x{:x} bytes".format(dlen, dlen))
             _log.debug("\n" + hexdump(data))
             return data
         return array('B')
 
     def _get_packet(self, cmd, payload):
+        """ -> array('B') of len=0x40 with canon usb header values set
+        """
         payload_length = len(payload) if payload else 0
         request_size = array('B', struct.pack('<I', payload_length + 0x10))
-        self._cmd_serial += (self._cmd_serial % 4) + 1 # just playin'
-        if self._cmd_serial > 65535:
+
+        self._cmd_serial += ((self._cmd_serial % 8)) or 5 # just playin'
+        if self._cmd_serial > 65530:
                 self._cmd_serial = 0
         serial = array('B', struct.pack('<I', self._cmd_serial))
         serial[2] = 0x12
@@ -315,9 +327,10 @@ class CanonUSB(object):
         packet = array('B', [0] * 0x50) # 80 byte command block
 
         packet[0:4] = request_size
-        packet[0x40] = 2 # just works, gphoto2 does magic for other camera classes
-        packet[0x44] = cmd['cmd1'];
-        packet[0x47] = cmd['cmd2'];
+        # just works, gphoto2 does magic for other camera classes
+        packet[0x40] = 0x02
+        packet[0x44] = cmd['cmd1']
+        packet[0x47] = cmd['cmd2']
         packet[4:8] = array('B', struct.pack('<I', cmd['cmd3']))
         packet[0x48:0x48+4] = request_size # again
         packet[0x4c:0x4c+4] = serial
@@ -329,100 +342,81 @@ class CanonUSB(object):
 
     def do_command_iter(self, cmd, payload=None, full=False):
         """Run a command on the camera.
-
-        TODO: this
-
         """
         packet = self._get_packet(cmd, payload)
-        _log.info("{0[c_idx]:s} (0x{0[cmd1]:x}, 0x{0[cmd2]:x}, 0x{0[cmd3]:x}), "
-                  "retlen 0x{0[return_length]:x} #{1:0}"
+        _log.info(">>> {0[c_idx]:s} (0x{0[cmd1]:x}, 0x{0[cmd2]:x}, "
+                  "0x{0[cmd3]:x}), retlen 0x{0[return_length]:x} #{1:0}"
                   .format(cmd, self._cmd_serial))
 
-        self._control_write(0x10, packet)
+        def next_chunk_size(remaining):
+            if remaining > MAX_CHUNK_SIZE:
+                return MAX_CHUNK_SIZE
+            elif remaining > 0x40:
+                return (remaining // 0x40) * 0x40
+            else:
+                return remaining
 
-        # the response
-        # always read first chunk if return_length says so
-        total_read = int(cmd['return_length'])
-        if total_read > MAX_CHUNK_SIZE:
-            first_read = MAX_CHUNK_SIZE
-        elif total_read > 0x40:
-            first_read = (int(total_read) / 0x40) * 0x40
-        else:
-            first_read = total_read
-        remainder_read = total_read - first_read
-
-        data = self._bulk_read(first_read)
-
+        # always read at least one chunk
+        # first_chunk_len is almost always 0x40
         if cmd['cmd3'] == 0x202:
-            # variable-length response
+            total_len = first_chunk_len = 0x40
+        else:
+            total_len = int(cmd['return_length'])
+            first_chunk_len = next_chunk_size(total_len)
+            remaining_len = total_len - first_chunk_len
+
+        # control out, then bulk in the first chunk
+        self._control_write(0x10, packet)
+        data = self._bulk_read(first_chunk_len)
+
+        def reader(bytes_to_yield):
+            "iterator over the response data from bulk in"
+            if full: # yield the first 0x40 bytes
+                yield data[:0x40]
+            if len(data) > 0x40:
+                yield data[0x40:]
+            bytes_yielded = 0
+            while bytes_yielded < bytes_to_yield:
+                chunk_len = next_chunk_size(bytes_to_yield - bytes_yielded)
+                yield self._bulk_read(chunk_len)
+                bytes_yielded += chunk_len
+
+        # variable-length response
+        # word at 0x06 is response length excluding the first 0x40
+        if cmd['cmd3'] == 0x202:
             resp_len = le32toi(data[6:10])
             _log.debug("variable response says 0x%x bytes follow",
                       resp_len)
-            remainder_read = resp_len
-        else:
-            reported_read = le32toi(data[0:4]) + 0x40
-            if reported_read != total_read:
-                _log.warn("bad response length, reported 0x{:x} vs. 0x{:x}"
-                          .format(reported_read, total_read))
-                remainder_read = reported_read - first_read
-            else:
-                _log.info("first chunk 0x{:x}, 0x{:x} to go, 0x{:x} reported"
-                          .format(first_read, remainder_read, reported_read))
+            _log.info("<<< {0[c_idx]:s} (0x{0[cmd1]:x}, 0x{0[cmd2]:x}, "
+                      "0x{0[cmd3]:x}), retlen 0x{1:x} #{2:0}"
+                      .format(cmd, resp_len + 0x40, self._cmd_serial))
+            return reader(resp_len)
 
-        if full:
-            yield data[:0x40]
-
-        data = data[0x40:]
-
-        if len(data) >= 0x14:
-            status = le32toi(data, 0x10)
-            _log.info("{0[c_idx]:s} #{1:0} : status {2:x}"
-                      .format(cmd, self._cmd_serial, status))
-        if len(data):
-            yield data
-
-        _log.debug("Chunked read of 0x{:x} bytes".format(remainder_read))
-        read = 0
-        while read < remainder_read:
-            remaining = remainder_read - read
-            if remaining > MAX_CHUNK_SIZE:
-                chunk_size = MAX_CHUNK_SIZE
-            elif remaining > 0x40:
-                chunk_size = remaining - (remaining % 0x40)
-            else:
-                chunk_size = remaining
-
-            _log.debug("chunked reading 0x{:x}".format(chunk_size))
-            data = self._bulk_read(chunk_size)
-            if len(data) != chunk_size:
-                raise CanonError("unable to read requested data")
-
-            if read <= 0x10 and (chunk_size + read) >= 0x14:
-                status = le32toi(data, 0x10-read)
-                _log.info("{0[c_idx]:s} #{1:0} : status {2:x}"
-                          .format(cmd, self._cmd_serial, status))
-
-            read += chunk_size
-            yield data
+        # fixed-length response
+        if len(data) < 0x4c:
+            # need another chunk to get to the response length
+            chunk_len = next_chunk_size(remaining_len)
+            data.extend(self._bulk_read(chunk_len))
+            remaining_len -= chunk_len
+            assert len(data) >= 0x54
+        # word at 0x48 is response length excluding the first 0x40
+        resp_len = le32toi(data[0x48:0x4c])
+        if resp_len + 0x40 != total_len:
+            _log.warn("BAD resp_len, correcting 0x{:x} to 0x{:x} "
+                      .format(total_len, resp_len))
+            remaining_len = resp_len + 0x40 - len(data)
+        # word at 0x50 is status byte
+        status = le32toi(data, 0x50)
+        _log.info("<<< {0[c_idx]:s} (0x{0[cmd1]:x}, 0x{0[cmd2]:x}, "
+                  "0x{0[cmd3]:x}), retlen 0x{1:x} #{2:0} status 0x{3:0x}"
+                  .format(cmd, resp_len + 0x40, self._cmd_serial,
+                          status))
+        return reader(remaining_len)
 
     def do_command(self, cmd, payload=None, full=False):
         data = array('B')
         for chunk in self.do_command_iter(cmd, payload, full):
             data.extend(chunk)
-        #        expected = first_read + remainder_read
-        #        if expected != actual_read:
-        #            raise CanonError("didn't get expected response length, "
-        #                          " expected %s (0x%x) but got %s (0x%x)" % (
-        #                             expected, expected, actual_read, actual_read))
-        # TODO: implement the check gphoto2 does when it sees the camera
-        #       reporting a return_length different than the expected for
-        #       this command.
-        #if len(data) >= 0x50:
-        #    reported_len = struct.unpack('<I', data[0x48:0x48+4].tostring())
-        #    if reported_len != len(data):
-        #        import warnings; warnings.warn()
-        _log.info("{0[c_idx]:s} #{1:0} -> 0x{2:x} bytes".format(
-                                          cmd, self._cmd_serial, len(data)))
         return data
 
 

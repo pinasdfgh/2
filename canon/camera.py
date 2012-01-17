@@ -1,20 +1,18 @@
+#  This file is part of canon-remote.
+#  Copyright (C) 2011-2012 Kiril Zyapkov <kiril.zyapkov@gmail.com>
 #
-# This file is part of canon-remote
-# Copyright (C) 2011 Kiril Zyapkov
+#  This program is free software: you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation, either version 3 of the License, or
+#  (at your option) any later version.
 #
-# canon-remote is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
 #
-# canon-remote is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with canon-remote.  If not, see <http://www.gnu.org/licenses/>.
-#
+#  You should have received a copy of the GNU General Public License
+#  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import logging
 import time
@@ -35,6 +33,8 @@ VENDORID = 0x04a9
 PRODUCTID = 0x306e
 
 def find():
+    """Maybe support more cameras one day?
+    """
     dev = usb.core.find(idVendor=VENDORID, idProduct=PRODUCTID)
     if not dev:
         _log.debug("Unable to find a Canon G3 camera attached to this host")
@@ -45,7 +45,7 @@ def find():
 class Camera(object):
 
     def __init__(self, device):
-        self.device = device
+        self._device = device
         self._usb = protocol.CanonUSB(device)
         self._storage = CanonStorage(self._usb)
         self._capture = CanonCapture(self._usb)
@@ -53,10 +53,14 @@ class Camera(object):
 
     @property
     def storage(self):
+        """Access the camera filesystem.
+        """
         return self._storage
 
     @property
     def capture(self):
+        """Do remote captures.
+        """
         return self._capture
 
     def initialize(self, force=False):
@@ -72,6 +76,8 @@ class Camera(object):
         except (USBError, CanonError):
             return False
 
+    ready = property(is_ready)
+
     def identify(self):
         """ identify() -> (model, owner, version)
         """
@@ -80,6 +86,26 @@ class Camera(object):
         owner = extract_string(data, 0x3c)
         version = '.'.join([str(x) for x in data[0x1b:0x17:-1]])
         return model, owner, version
+
+    @property
+    def owner(self):
+        """The owner of this camera, writable.
+        """
+        return self.identify()[1]
+
+    @owner.setter
+    def owner(self, owner):
+        self._usb.do_command(commands.CAMERA_CHOWN, owner + '\x00')
+
+    @property
+    def model(self):
+        """Camera model string as stored on it.
+        """
+        return self.identify()[0]
+
+    @property
+    def firmware_version(self):
+        return self.identify()[2]
 
     @property
     def camera_time(self):
@@ -92,8 +118,8 @@ class Camera(object):
     def camera_time(self, new):
         """Set the current date and time.
 
-        Currently only accepts UNIX timestamp, should be translated to the
-        local timezone.
+        Currently only accepts an UNIX timestamp, should be translated
+        to the local timezone.
         """
         if new is None:
             # TODO: convert to local tz, accept datetime
@@ -103,14 +129,6 @@ class Camera(object):
         return self.camera_time
 
     @property
-    def owner(self):
-        return self.identify()[1]
-
-    @owner.setter
-    def owner(self, owner):
-        self._usb.do_command(commands.CAMERA_CHOWN, owner + '\x00')
-
-    @property
     def on_ac(self):
         """True if the camera is not running on battery power.
         """
@@ -118,13 +136,27 @@ class Camera(object):
         return bool((data[0x17] & 0x20) == 0x00)
 
     def get_pic_abilities(self):
+        """ http://www.graphics.cornell.edu/~westin/canon/ch03s25.html
+        """
         data = self._usb.do_command(commands.GET_PIC_ABILITIES, full=True)
-        status = le32toi(data, 0x50)
         struct_size = le16toi(data, 0x54)
-        model_id = le32toi(data, 0x56)
-        cam_id = extract_string(data[0x5a:0x5a + 0x20])
-        _log.info("pic abilities: status {}, size {}, model {}, cam {}"
-                  .format(status, struct_size, model_id, cam_id))
+        model_id = le32toi(data[0x56:0x5a])
+        camera_name = extract_string(data, 0x5a)
+        num_entries = le32toi(data, 0x7a)
+        _log.info("abilities of {} (0x{:x}): 0x{:x} long, n={}"
+                 .format(camera_name, model_id, struct_size, num_entries))
+        offset = 0x7e
+        abilities = []
+        for i in xrange(num_entries):
+            name = extract_string(data, offset)
+            height = le32toi(data, offset + 20)
+            width = le32toi(data, offset + 24)
+            z_types = le32toi(data, offset + 28)
+            _log.info(" {:-3} - {:20} {}x{} {:x}".format(i, name, width, height, z_types))
+            offset += 32
+            abilities.append((name, height, width, z_types))
+
+        return abilities
 
     def cleanup(self):
         _log.info("Camera {} being cleaned up".format(self))
@@ -136,9 +168,9 @@ class Camera(object):
         self._usb = None
         self._storage = None
         self._capture = None
-        if self.device:
-            usb.util.dispose_resources(self.device)
-            self.device = None
+        if self._device:
+            usb.util.dispose_resources(self._device)
+            self._device = None
 
     def __del__(self):
         self.cleanup()
