@@ -180,7 +180,7 @@ POWER_STATUS = {
     'return_length': 0x58 }
 
 CONTROL_CAMERA = {
-    'c_idx': 'CONTROL_CAMERA',
+    'c_idx': 'RC_CAMERA',
     'description': "Remote camera control",
     'cmd1': 0x13,
     'cmd2': 0x12,
@@ -292,7 +292,7 @@ GET_PIC_ABILITIES_2 = {
     'return_length': 0x474 }
 
 CONTROL_CAMERA_2 = {
-    'c_idx': 'CONTROL_CAMERA_2',
+    'c_idx': 'RC_CAMERA_2',
     'description': "Remote camera control (new)",
     'cmd1': 0x25,
     'cmd2': 0x12,
@@ -331,145 +331,164 @@ SET_ATTR_2 = {
     'cmd3': 0x201,
     'return_length': 0x54 }
 
+def lookup(cmd1, cmd2, cmd3):
+    for name, c in globals().iteritems():
+        if not name.isupper() or type(c) != dict:
+            continue
+        if not all(((k in c) for k in ('cmd1', 'cmd2', 'cmd3'))):
+            continue
+        if c['cmd1'] == cmd1 and c['cmd2'] == cmd2 and c['cmd3'] == cmd3:
+            return c['c_idx']
 
 # Remote control sub-commands
 
 RC_INIT = {
-    'c_idx': 'CONTROL_INIT',
+    'c_idx': 'RC_INIT',
     'description': "Camera control init",
     'value': 0x00,
     'cmd_len': 0x18,
     'return_length': 0x1c }
 
 RC_SHUTTER_RELEASE = {
-    'c_idx': 'CONTROL_SHUTTER_RELEASE',
+    'c_idx': 'RC_SHUTTER_RELEASE',
     'description': "Release shutter",
     'value': 0x04,
     'cmd_len': 0x18,
     'return_length': 0x1c }
 
 RC_SET_PARAMS = {
-    'c_idx': 'CONTROL_SET_PARAMS',
+    'c_idx': 'RC_SET_PARAMS',
     'description': "Set release params",
     'value': 0x07,
     'cmd_len': 0x3c,
     'return_length': 0x1c }
 
 RC_SET_TRANSFER_MODE = {
-    'c_idx': 'CONTROL_SET_TRANSFER_MODE',
+    'c_idx': 'RC_SET_TRANSFER_MODE',
     'description': "Set transfer mode",
     'value': 0x09,
     'cmd_len': 0x1c,
     'return_length': 0x1c }
 
 RC_GET_PARAMS = {
-    'c_idx': 'CONTROL_GET_PARAMS',
+    'c_idx': 'RC_GET_PARAMS',
     'description': "Get release params",
     'value': 0x0a,
     'cmd_len': 0x18,
     'return_length': 0x4c }
 
 RC_GET_ZOOM_POS = {
-    'c_idx': 'CONTROL_GET_ZOOM_POS',
+    'c_idx': 'RC_GET_ZOOM_POS',
     'description': "Get zoom position",
     'value': 0x0b,
     'cmd_len': 0x18,
     'return_length': 0x20 }
 
 RC_SET_ZOOM_POS = {
-    'c_idx': 'CONTROL_SET_ZOOM_POS',
+    'c_idx': 'RC_SET_ZOOM_POS',
     'description': "Set zoom position",
     'value': 0x0c,
     'cmd_len': 0x1c,
     'return_length': 0x1c }
 
 RC_GET_AVAILABLE_SHOT = {
-    'c_idx': 'CONTROL_GET_AVAILABLE_SHOT',
+    'c_idx': 'RC_GET_AVAILABLE_SHOT',
     'description': "Get available shot",
     'value': 0x0d,
     'cmd_len': 0x18,
     'return_length': 0x20 }
 
 RC_GET_CUSTOM_FUNC = {
-    'c_idx': 'CONTROL_GET_CUSTOM_FUNC',
+    'c_idx': 'RC_GET_CUSTOM_FUNC',
     'description': "Get custom func.",
     'value': 0x0f,
     'cmd_len': 0x22,
     'return_length': 0x26 }
 
 RC_GET_EXT_PARAMS_SIZE = {
-    'c_idx': 'CONTROL_GET_EXT_PARAMS_SIZE',
+    'c_idx': 'RC_GET_EXT_PARAMS_SIZE',
     'description': "Get ext. release params size",
     'value': 0x10,
     'cmd_len': 0x1c,
     'return_length': 0x20 }
 
 RC_GET_EXT_PARAMS = {
-    'c_idx': 'CONTROL_GET_EXT_PARAMS',
+    'c_idx': 'RC_GET_EXT_PARAMS',
     'description': "Get ext. release params",
     'value': 0x12,
     'cmd_len': 0x1c,
     'return_length': 0x2c }
 
 RC_SET_EXT_PARAMS = {
-    'c_idx': 'CONTROL_SET_EXT_PARAMS',
+    'c_idx': 'RC_SET_EXT_PARAMS',
     'description': "Set extended params",
     'value': 0x13,
     'cmd_len': 0x15,
     'return_length': 0x1c }
 
 RC_EXIT = {
-    'c_idx': 'CONTROL_EXIT',
+    'c_idx': 'RC_EXIT',
     'description': "Exit release control",
     'value': 0x01,
     'cmd_len': 0x18,
     'return_length': 0x1c }
 
 RC_UNKNOWN_1 = {
-    'c_idx': 'CONTROL_UNKNOWN_1',
+    'c_idx': 'RC_UNKNOWN_1',
     'description': "Unknown remote subcode",
     'value': 0x1b,
     'cmd_len': 0x08,
     'return_length': 0x5e }
 
 RC_UNKNOWN_2 = {
-    'c_idx': 'CONTROL_UNKNOWN_2',
+    'c_idx': 'RC_UNKNOWN_2',
     'description': "Unknown remote subcode",
     'value': 0x1c,
     'cmd_len': 0x00,
     'return_length': 0x00 }
 
 RC_VIEWFINDER_START = {
-    'c_idx': 'CONTROL_VIEWFINDER_START',
+    'c_idx': 'RC_VIEWFINDER_START',
     'description': "Start viewfinder",
     'value': 0x02,
     'cmd_len': 0x00,
     'return_length': 0x00 }
 
 RC_VIEWFINDER_STOP = {
-    'c_idx': 'CONTROL_VIEWFINDER_STOP',
+    'c_idx': 'RC_VIEWFINDER_STOP',
     'description': "Stop viewfinder",
     'value': 0x03,
     'cmd_len': 0x00,
     'return_length': 0x00 }
 
 RC_SET_CUSTOM_FUNC = {
-    'c_idx': 'CONTROL_SET_CUSTOM_FUNC',
+    'c_idx': 'RC_SET_CUSTOM_FUNC',
     'description': "Set custom func.",
     'value': 0x0e,
     'cmd_len': 0x00,
     'return_length': 0x00 }
 
 RC_GET_EXT_PARAMS_VER = {
-    'c_idx': 'CONTROL_GET_EXT_PARAMS_VER',
+    'c_idx': 'RC_GET_EXT_PARAMS_VER',
     'description': "Get extended params version",
     'value': 0x11,
     'cmd_len': 0x00,
     'return_length': 0x00 }
 
 RC_SELECT_CAM_OUTPUT = {
-    'c_idx': 'CONTROL_SELECT_CAM_OUTPUT',
+    'c_idx': 'RC_SELECT_CAM_OUTPUT',
     'description': "Select camera output",
     'value': 0x14,
     'cmd_len': 0x00,
     'return_length': 0x00 }
+
+def lookup_rc(subcmd):
+    for name, c in globals().iteritems():
+        if (not name.isupper() or not name.startswith('RC_')
+                or type(c) != dict):
+            continue
+        if not all(((k in c) for k in ('c_idx', 'value', 'cmd_len'))):
+            continue
+        if c['value'] == subcmd:
+            return c['c_idx']
+

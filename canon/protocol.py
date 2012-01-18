@@ -15,14 +15,12 @@
 #  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-import struct
 import threading
-import itertools
 import logging
 from array import array
 
 from canon import commands, CanonError
-from canon.util import Bitfield, Flag, BooleanFlag, le32toi, hexdump, itole32a
+from canon.util import le32toi, hexdump, itole32a, Bitfield
 import time
 from usb.core import USBError
 import usb.util
@@ -32,76 +30,14 @@ _log = logging.getLogger(__name__)
 
 MAX_CHUNK_SIZE = 0x1400
 
-class TransferMode(Bitfield):
-    THUMB_TO_PC    = 0x01
-    FULL_TO_PC     = 0x02
-    THUMB_TO_DRIVE = 0x04
-    FULL_TO_DRIVE  = 0x08
+class CommandHeader(Bitfield):
+    _size = 0x50
 
-    pc = Flag(0, thumb=0x01, full=0x02)
-    drive =  Flag(0, thumb=0x04, full=0x08)
-
-class FSAttributes(Bitfield):
-
-    _size = 0x01
-
-    DOWNLOADED = 0x20
-    WRITE_PROTECTED = 0x01
-    RECURSE_DIR = 0x80
-    NONRECURSE_DIR = 0x10
-
-    UNKNOWN_2 = 0x02
-    UNKNOWN_4 = 0x04
-    UNKNOWN_8 = 0x08
-    UNKNOWN_40 = 0x40
-
-    recurse = BooleanFlag(0, true=RECURSE_DIR, false=NONRECURSE_DIR)
-    downloaded = BooleanFlag(0, true=DOWNLOADED)
-    protected = BooleanFlag(0, true=WRITE_PROTECTED)
-
-    @property
-    def is_dir(self):
-        return (self.RECURSE_DIR in self.recurse
-                    or self.NONRECURSE_DIR in self.recurse)
-
-class FSEntry(object):
-    def __init__(self, name, attributes, size=None, timestamp=None):
-        self.name = name
-        self.size = size
-        self.timestamp = timestamp
-        if not isinstance(attributes, FSAttributes):
-            attributes = FSAttributes(attributes)
-        self.attr = attributes
-        self.children = []
-        self.parent = None
-
-    @property
-    def full_path(self):
-        if self.parent is None:
-            return self.name
-        return self.parent.full_path + '\\' + self.name
-    @property
-    def entry_size(self):
-        return 11 + len(self.name)
-
-    @property
-    def type_(self):
-        return 'd' if self.attr.is_dir else 'f'
-
-    @property
-    def is_dir(self):
-        return self.attr.is_dir
-
-    def __iter__(self):
-        yield self
-        for entry in itertools.chain(*self.children):
-            yield entry
-
-    def __repr__(self):
-        return "<FSEntry {0.type_} '{0.full_path}'>".format(self)
-
-    def __str__(self):
-        return self.full_path
+class Command(object):
+    """ TODO:
+    """
+    def __init__(self):
+        pass
 
 class CanonUSB(object):
     """Communicate with a Canon camera, old style.
@@ -136,7 +72,7 @@ class CanonUSB(object):
             while errors < 10:
                 if self.should_stop: return
                 try:
-                    chunk = self.usb._poll_interrupt(self.chunk, self.timeout)
+                    chunk = self.usb.poll_interrupt(self.chunk, self.timeout)
                     if chunk:
                         self.received.extend(chunk)
                     if (self.size is not None
@@ -150,9 +86,11 @@ class CanonUSB(object):
                         return
                     time.sleep(0.1)
                 except (USBError, ) as e:
-                    if e.errno == 110: # timeout
+                    if e.errno == 110: # timeout, ignore
                         continue
-
+                    if e.errno == 16: # resource busy, bail
+                        _log.warn("poll: {}".format(e))
+                        return
                     _log.warn("poll: {}".format(e))
                     errors += 1
             _log.info("poller got too many errors, exiting")
@@ -302,25 +240,31 @@ class CanonUSB(object):
         _log.debug("\n" + hexdump(data))
         return data
 
-    def _poll_interrupt(self, size, timeout=100):
-        data = self.ep_int.read(size, timeout)
+    def poll_interrupt(self, size, timeout=100, ignore_timeouts=False):
+        try:
+            data = self.ep_int.read(size, timeout)
+        except USBError, e:
+            if ignore_timeouts and e.errno == 110:
+                return array('B')
+            raise
         if data is not None and len(data):
             dlen = len(data)
-            _log.info("_poll_interrupt got {} 0x{:x} bytes".format(dlen, dlen))
+            _log.info("poll_interrupt got {} 0x{:x} bytes".format(dlen, dlen))
             _log.debug("\n" + hexdump(data))
             return data
         return array('B')
 
     def _get_packet(self, cmd, payload):
-        """ -> array('B') of len=0x40 with canon usb header values set
+        """ -> array('B') of len=(0x50 + len(payload))
+                  with canon usb header values set
         """
         payload_length = len(payload) if payload else 0
-        request_size = array('B', struct.pack('<I', payload_length + 0x10))
+        request_size = itole32a(payload_length + 0x10)
 
         self._cmd_serial += ((self._cmd_serial % 8)) or 5 # just playin'
         if self._cmd_serial > 65530:
                 self._cmd_serial = 0
-        serial = array('B', struct.pack('<I', self._cmd_serial))
+        serial = itole32a(self._cmd_serial)
         serial[2] = 0x12
 
         # what we dump on the pipe
@@ -331,7 +275,7 @@ class CanonUSB(object):
         packet[0x40] = 0x02
         packet[0x44] = cmd['cmd1']
         packet[0x47] = cmd['cmd2']
-        packet[4:8] = array('B', struct.pack('<I', cmd['cmd3']))
+        packet[4:8] = itole32a(cmd['cmd3'])
         packet[0x48:0x48+4] = request_size # again
         packet[0x4c:0x4c+4] = serial
 
@@ -431,7 +375,7 @@ class CanonUSB(object):
         _log.info("RC {0[c_idx]:s} retlen 0x{0[return_length]:x}"
                   .format(rc_cmd, cmd))
         if payload is None:
-            payload = array('B', struct.pack('<I', rc_cmd['value']))
+            payload = itole32a(rc_cmd['value'])
             if arg1 is None: arg1 = 0x00
             payload.extend(itole32a(arg1))
             if arg2 is not None:

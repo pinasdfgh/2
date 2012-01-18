@@ -65,7 +65,7 @@ def chunks(l, n):
     for i in xrange(0, len(l), n):
         yield l[i:i+n]
 
-def hexdump(data, with_ascii=True):
+def hexdump(data, with_ascii=True, with_offset=True):
     """Return the binary data as nicely printed hexadecimal text.
     """
     if type(data) is str:
@@ -77,17 +77,22 @@ def hexdump(data, with_ascii=True):
 
     def format_row(idx, row):
         'line of text for the 16 bytes in row'
-        hextext = []
+        line = ''
+        if with_offset:
+            line = '{:04x}  '.format(idx*0x10)
+
+        halfs = []
         for half in chunks(row, 8): # split the 16 bytes in the middle
-            part = ' '.join("{:02x}".format(x) for x in half)
-            hextext.append(part)
+            half = ' '.join("{:02x}".format(x) for x in half)
+            halfs.append(half)
 
-        hextext = '{:04x}  '.format(idx*0x10) + '  '.join(hextext)
+        line += '  '.join(halfs)
+
         if not with_ascii:
-            return hextext
+            return line
 
-        hextext = hextext.ljust(57) # adjust to 56 chars
-        chartext = []
+        line = line.ljust(57) # adjust to 56 chars
+        halfs = []
         for half in chunks(row, 8):
             chars = [(chr(c) if (chr(c) in string.ascii_letters
                                      or chr(c) in string.digits
@@ -95,10 +100,10 @@ def hexdump(data, with_ascii=True):
                                      or chr(c) == ' ')
                              else ('.' if c == 0x00 else ';'))
                      for c in half]
-            part = ''.join(chars)
-            chartext.append(part)
-        hextext += ' '.join(chartext)
-        return hextext
+            half = ''.join(chars)
+            halfs.append(half)
+        line += ' '.join(halfs)
+        return line
 
     out = [format_row(row_idx, row) for row_idx, row in data]
 

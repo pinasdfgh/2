@@ -18,10 +18,75 @@
 import logging
 
 from canon import protocol, commands
-from canon.util import extract_string, le32toi, itole32a
+from canon.util import extract_string, le32toi, itole32a, BooleanFlag, Bitfield
 from array import array
+import itertools
 
 _log = logging.getLogger(__name__)
+
+class FSAttributes(Bitfield):
+
+    _size = 0x01
+
+    DOWNLOADED = 0x20
+    WRITE_PROTECTED = 0x01
+    RECURSE_DIR = 0x80
+    NONRECURSE_DIR = 0x10
+
+    UNKNOWN_2 = 0x02
+    UNKNOWN_4 = 0x04
+    UNKNOWN_8 = 0x08
+    UNKNOWN_40 = 0x40
+
+    recurse = BooleanFlag(0, true=RECURSE_DIR, false=NONRECURSE_DIR)
+    downloaded = BooleanFlag(0, true=DOWNLOADED)
+    protected = BooleanFlag(0, true=WRITE_PROTECTED)
+
+    @property
+    def is_dir(self):
+        return (self.RECURSE_DIR in self.recurse
+                    or self.NONRECURSE_DIR in self.recurse)
+
+class FSEntry(object):
+    def __init__(self, name, attributes, size=None, timestamp=None):
+        self.name = name
+        self.size = size
+        self.timestamp = timestamp
+        if not isinstance(attributes, FSAttributes):
+            attributes = FSAttributes(attributes)
+        self.attr = attributes
+        self.children = []
+        self.parent = None
+
+    @property
+    def full_path(self):
+        if self.parent is None:
+            return self.name
+        return self.parent.full_path + '\\' + self.name
+    @property
+    def entry_size(self):
+        return 11 + len(self.name)
+
+    @property
+    def type_(self):
+        return 'd' if self.attr.is_dir else 'f'
+
+    @property
+    def is_dir(self):
+        return self.attr.is_dir
+
+    def __iter__(self):
+        yield self
+        for entry in itertools.chain(*self.children):
+            yield entry
+
+    def __repr__(self):
+        return "<FSEntry {0.type_} '{0.full_path}'>".format(self)
+
+    def __str__(self):
+        return self.full_path
+
+
 
 class CanonStorage(object):
     def __init__(self, usb):
@@ -45,7 +110,7 @@ class CanonStorage(object):
                 name = extract_string(data, idx+10)
                 if not name:
                     raise StopIteration()
-                entry = protocol.FSEntry(name, attributes=data[idx:idx+1],
+                entry = FSEntry(name, attributes=data[idx:idx+1],
                                 size=le32toi(data[idx+2:idx+6]),
                                 timestamp=le32toi(data[idx+6:idx+10]))
                 idx += entry.entry_size
@@ -97,7 +162,7 @@ class CanonStorage(object):
         drive = self.get_drive()
         if path is None:
             path = ''
-        if isinstance(path, protocol.FSEntry):
+        if isinstance(path, FSEntry):
             path = path.full_path
         path = path.replace('/', '\\')
         if not path.startswith(drive):

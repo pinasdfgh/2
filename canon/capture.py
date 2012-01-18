@@ -19,8 +19,8 @@ import time
 import logging
 from array import array
 
-from canon import commands, protocol, CanonError
-from canon.util import Bitfield, Flag
+from canon import commands, CanonError
+from canon.util import Bitfield, Flag, le32toi
 from functools import wraps
 
 _log = logging.getLogger(__name__)
@@ -32,6 +32,15 @@ class Settings(object):
 
     def __set__(self, instance, owner):
         pass
+
+class TransferMode(Bitfield):
+    THUMB_TO_PC    = 0x01
+    FULL_TO_PC     = 0x02
+    THUMB_TO_DRIVE = 0x04
+    FULL_TO_DRIVE  = 0x08
+
+    pc = Flag(0, thumb=0x01, full=0x02)
+    drive =  Flag(0, thumb=0x04, full=0x08)
 
 
 class CaptureSettings(Bitfield):
@@ -207,6 +216,7 @@ def require_active_capture(func):
             return func(inst, *args, **kw)
         raise CanonError("{} only works when capture is active"
                          .format(func.__name__))
+    return wrapper
 
 class CanonCapture(object):
     def __init__(self, usb):
@@ -221,7 +231,7 @@ class CanonCapture(object):
             _log.info("remote capture already active, force me")
             return
         for _ in range(3):
-            self._usb._poll_interrupt(0x10)
+            self._usb.poll_interrupt(0x10, ignore_timeouts=True)
             time.sleep(0.3)
 
         # if keys are not locked RC INIT fails, maybe
@@ -230,6 +240,9 @@ class CanonCapture(object):
         with self._usb.timeout_ctx(5000):
             self._usb.do_command_rc(commands.RC_INIT)
             self._in_rc = True
+
+        self.transfermode = 0x00
+        self._usb.do_command_rc(commands.RC_SET_ZOOM_POS, 0x04, 0x00)
 
     def stop(self):
         with self._usb.timeout_ctx(1000):
@@ -247,31 +260,23 @@ class CanonCapture(object):
         return self._settings
 
     @property
-    def get_transfermode(self):
+    @require_active_capture
+    def transfermode(self):
         self._usb.do_command_rc(commands.RC_GET_PARAMS, 0x04, 0x00)
 
-    def set_transfermode(self, flags):
-        if isinstance(flags, protocol.TransferMode):
-            flags = flags.flags
+    @transfermode.setter
+    @require_active_capture
+    def transfermode(self, flags):
+        if isinstance(flags, array):
+            flags = le32toi(flags)
         else:
             flags = int(flags)
         self._usb.do_command_rc(commands.RC_SET_TRANSFER_MODE, 0x04, flags)
 
+    @require_active_capture
     def capture(self):
         """
         canon_int_capture_image()
-            canon_int_start_remote_control()
-                canon_int_do_control_command(CANON_USB_CONTROL_INIT, 0, 0);
-
-            canon_int_do_control_command(CANON_USB_CONTROL_SET_TRANSFER_MODE,
-                                           0x04, transfermode);
-            canon_int_do_control_command(CANON_USB_CONTROL_GET_PARAMS, 0x00, 0);
-            canon_int_do_control_command(CANON_USB_CONTROL_GET_PARAMS, 0x04, transfermode);
-            /* Shutter Release
-               Can't use normal "canon_int_do_control_command", as
-               we must read the interrupt pipe before the response
-               comes back for this commmand. */
-            canon_usb_capture_dialogue(&return_length, &photo_status, context );
         """
         p = self._usb.poller()
         self._usb.do_command_rc(commands.RC_SHUTTER_RELEASE)

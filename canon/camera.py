@@ -68,15 +68,15 @@ class Camera(object):
             _log.info("initialize called, but camera seems up, force me")
             return
         _log.info("camera will be initialized")
-        return self._usb.initialize()
+        self._usb.initialize()
+        self._usb.do_command(commands.GENERIC_LOCK_KEYS)
 
-    def is_ready(self):
+    @property
+    def ready(self):
         try:
             return bool(self.identify())
         except (USBError, CanonError):
             return False
-
-    ready = property(is_ready)
 
     def identify(self):
         """ identify() -> (model, owner, version)
@@ -135,7 +135,8 @@ class Camera(object):
         data = self._usb.do_command(commands.POWER_STATUS, full=False)
         return bool((data[0x17] & 0x20) == 0x00)
 
-    def get_pic_abilities(self):
+    @property
+    def abilities(self):
         """ http://www.graphics.cornell.edu/~westin/canon/ch03s25.html
         """
         data = self._usb.do_command(commands.GET_PIC_ABILITIES, full=True)
@@ -171,6 +172,18 @@ class Camera(object):
         if self._device:
             usb.util.dispose_resources(self._device)
             self._device = None
+
+    def __repr__(self):
+        ret = object.__repr__(self)
+        if self.ready:
+            try:
+                return "<{} {} {}>".format(self.model, self.firmware_version,
+                                           self.owner)
+            except:
+                return ret
+        else:
+            return ret
+
 
     def __del__(self):
         self.cleanup()
