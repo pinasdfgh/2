@@ -1,3 +1,4 @@
+#!/usr/bin/env python2
 import pcapy
 from array import array
 
@@ -68,9 +69,9 @@ class CanonUSBCommand(object):
             name = commands.lookup(self.cmd1, self.cmd2, self.cmd3) or '-unknown-'
         name += '  ' + hexdump(self.payload[:0x10],
                         with_ascii=False, with_offset=False)
-        return "<CMD 0x{:02x} 0x{:02x} 0x{:03x} (0x{:x}) {}>".format(
+        return "<CMD 0x{:02x} 0x{:02x} 0x{:03x} (0x{:02x}) (0x{:03x}) {}>".format(
                                  self.cmd1, self.cmd2, self.cmd3,
-                                 len(self.payload), name)
+                                 len(self.payload), len(self.response), name)
 
 
 def reader(filename):
@@ -115,6 +116,9 @@ if __name__ == '__main__':
         fname = sys.argv[1]
     cmds = get_commands(fname)
     for i, c in enumerate(cmds):
-        print i, c
-        print hexdump(c.response)
+        print "{:04d} {}".format(i, c)
+        print " payload:"
+        print hexdump(c.payload)
+        print " response:"
+        print hexdump(c.response[0x50:])
         print

@@ -15,16 +15,17 @@
 #  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
+import time
 import threading
 import logging
 from array import array
+from contextlib import contextmanager
+
+from usb.core import USBError
+import usb.util
 
 from canon import commands, CanonError
 from canon.util import le32toi, hexdump, itole32a, Bitfield
-import time
-from usb.core import USBError
-import usb.util
-from contextlib import contextmanager
 
 _log = logging.getLogger(__name__)
 
@@ -42,14 +43,14 @@ class Command(object):
 class CanonUSB(object):
     """Communicate with a Canon camera, old style.
 
-    This may someday be used for another old Canon, not my G3. It should
-    be as generic as possible. Code is heavily based on
+    This protocol implementation is heavily based on
     http://www.graphics.cornell.edu/~westin/canon/index.html
-    and gphoto2's source.
+    and gphoto2's source. Sporadic comments here are mostly copied from
+    gphoto's source and docs.
 
     -- need to put that somewhere --
-    bmRequestType is 0xC0 during read and 0x40 during write.
-    bRequest is 0x4 if length of data is >1, 0x0c otherwise (length >1 ? 0x04 : 0x0C)
+
+
     wValue differs between operations.
     wIndex is always 0x00
     wLength is simply the length of data.
@@ -202,9 +203,11 @@ class CanonUSB(object):
 
 
     def _control_read(self, wValue, data_length=0, timeout=None):
+        # bRequest is 0x4 if length of data is >1, 0x0c otherwise (length >1 ? 0x04 : 0x0C)
         bRequest = 0x04 if data_length > 1 else 0x0c
         _log.info("CTRL IN (req: 0x{:x} wValue: 0x{:x}) reading 0x{:x} bytes"
                    .format(bRequest, wValue, data_length))
+        # bmRequestType is 0xC0 during read and 0x40 during write.
         response = self.device.ctrl_transfer(
                                  0xc0, bRequest, wValue=wValue, wIndex=0,
                                  data_or_wLength=data_length, timeout=timeout)
@@ -214,14 +217,16 @@ class CanonUSB(object):
         return response
 
     def _control_write(self, wValue, data='', timeout=None):
+        # bRequest is 0x4 if length of data is >1, 0x0c otherwise (length >1 ? 0x04 : 0x0C)
         bRequest = 0x04 if len(data) > 1 else 0x0c
         _log.info("CTRL OUT (rt: 0x{:x}, req: 0x{:x}, wValue: 0x{:x}) 0x{:x} bytes"
                   .format(0x40, bRequest, wValue, len(data)))
         _log.debug("\n" + hexdump(data))
+        # bmRequestType is 0xC0 during read and 0x40 during write.
         i = self.device.ctrl_transfer(0x40, bRequest, wValue=wValue, wIndex=0,
                                       data_or_wLength=data, timeout=timeout)
         if i != len(data):
-            raise CanonError("control write incomplete")
+            raise CanonError("control write was incomplete")
         return i
 
     def _bulk_read(self, size, timeout=None):

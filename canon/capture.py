@@ -254,6 +254,7 @@ class CanonCapture(object):
         return self._in_rc
 
     @property
+    @require_active_capture
     def settings(self):
         if not self._settings:
             return self._get_capture_settings()
@@ -262,7 +263,7 @@ class CanonCapture(object):
     @property
     @require_active_capture
     def transfermode(self):
-        self._usb.do_command_rc(commands.RC_GET_PARAMS, 0x04, 0x00)
+        return self._usb.do_command_rc(commands.RC_GET_PARAMS, 0x04, 0x00)
 
     @transfermode.setter
     @require_active_capture
@@ -284,8 +285,11 @@ class CanonCapture(object):
         while (len(p.received) < 2*0x10):
             if time.time() - now > 10:
                 _log.warn("Capture is taking longer than 10 seconds ...")
+                p.stop()
                 return
             time.sleep(1)
+        p.stop()
+        _log.info("Capture completed")
 
     def _get_capture_settings(self):
         data = self._usb.do_command_rc(commands.RC_GET_PARAMS)
@@ -293,4 +297,8 @@ class CanonCapture(object):
         self._settings = CaptureSettings(data[0x5c:0x5c+0x2f])
         _log.info("capture settings from camera: {}".format(self._settings))
         return self._settings
+
+    def _set_capture_settings(self, settings):
+        raise NotImplementedError()
+        self._usb.do_command_rc(commands.RC_SET_PARAMS, )
 

@@ -156,9 +156,6 @@ class _BoundFlag(object):
 
         return int(self) == all_
 
-    def __repr__(self):
-        return ("<{} 0x{:x} 0b{:0"+str(self._length)+"b}>").format(self.name, int(self), int(self))
-
     def _extract(self):
         """return a self._length-long array from bitfield
         """
@@ -207,6 +204,11 @@ class _BoundFlag(object):
         bytes_ = struct.pack(self._fmt, int(value))
         return self._unpad(bytes_)
 
+    def __repr__(self):
+        return ("<{} {} 0b{:0"+str(self._length)+"b}>").format(
+                   self.name, self._flag.get_value_name(int(self)), int(self))
+
+
 class Flag(object):
     """A set of bitmasks within a bitfield.
 
@@ -242,6 +244,12 @@ class Flag(object):
         if name in self._choices:
             return self._choices[name]
         raise AttributeError("{} has no attribute {}".format(self, name))
+
+    def get_value_name(self, value):
+        for k, v in self._choices.iteritems():
+            if v == value:
+                return k
+        return '<unknown 0x{:x}>'.format(value)
 
     @classmethod
     def _get_bound_instance(cls, self, bitfield):
@@ -309,13 +317,12 @@ class Bitfield(array):
             bf.flags[flag_name] = flag
         return bf
 
-    def __str__(self):
+    def __repr__(self):
+        bounds = []
+        for name in self.flags:
+            bounds.append(getattr(self, name))
         return "<{} at 0x{:x} {}>".format(
                       self.__class__.__name__, hash(self),
-                      ', '.join(['{}: 0x{:x}'.format(name, int(getattr(self, name)))
-                                 for name in dir(self)
-                                    if isinstance(getattr(self, name), _BoundFlag)]))
+                      ', '.join(['{}'.format(str(bound))
+                                 for bound in bounds]))
 
-    def __repr__(self):
-        return "{}({})".format(self.__class__.__name__,
-                             array.__repr__(self))
