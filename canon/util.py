@@ -202,6 +202,9 @@ class _BoundFlag(object):
         """
         bytes_ = struct.pack(self._fmt, int(value))
         return self._unpad(bytes_)
+    
+    def __getattr__(self, name):
+        return getattr(self._flag, name)
 
     def __repr__(self):
         return ("<{} {} 0b{:0"+str(self._length)+"b}>").format(

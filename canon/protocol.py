@@ -33,6 +33,7 @@ MAX_CHUNK_SIZE = 0x1400
 
 class CommandHeader(Bitfield):
     _size = 0x50
+    
 
 class Command(object):
     """ TODO:
@@ -125,12 +126,14 @@ class CanonUSB(object):
                       .format(old, new, time.time() - now))
             self.device.default_timeout = old
 
+    @contextmanager
     def poller(self, size=None, timeout=None):
         if self._poller:
             self._poller.stop()
         self._poller = self.InterruptPoller(self, size, timeout=timeout)
         self._poller.start()
-        return self._poller
+        yield self._poller
+        self._poller.stop()
 
     def is_ready(self):
         """Check if the camera has been initialized by issuing IDENTIFY_CAMERA.
@@ -153,7 +156,7 @@ class CanonUSB(object):
         try:
             cfg = self.device.get_active_configuration()
             _log.debug("Configuration %s already set.", cfg.bConfigurationValue)
-        except USBError as e:
+        except USBError, e:
             _log.debug("Will attempt to set configuration now, {}".format(e))
             self.device.set_configuration()
             self.device.set_interface_altsetting()
@@ -164,8 +167,7 @@ class CanonUSB(object):
             except USBError, e:
                 _log.info("Clearing HALT on {} failed: {}".format(ep, e))
 
-        p = self.poller()
-        try:
+        with self.poller() as p:
             # do the init dance
             with self.timeout_ctx(5000):
                 camstat = self._control_read(0x55, 1).tostring()
@@ -185,8 +187,11 @@ class CanonUSB(object):
             self._control_write(0x11, msg)
             self._bulk_read(0x44)
 
+            started = time.time()
             while len(p.received) < 0x10:
                 time.sleep(0.2)
+                if time.time() - started > 5.0:
+                    raise CanonError("Waited for interrupt in data for too long!")
 
             cnt = 0
             while cnt < 4:
@@ -198,9 +203,6 @@ class CanonUSB(object):
                     _log.debug("identify after init fails: {}".format(e))
 
             raise CanonError("identify_camera failed too many times")
-        finally:
-            p.stop()
-
 
     def _control_read(self, wValue, data_length=0, timeout=None):
         # bRequest is 0x4 if length of data is >1, 0x0c otherwise (length >1 ? 0x04 : 0x0C)

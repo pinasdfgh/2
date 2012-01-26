@@ -20,18 +20,10 @@ import logging
 from array import array
 
 from canon import commands, CanonError
-from canon.util import Bitfield, Flag, le32toi
+from canon.util import Bitfield, Flag, le32toi, itole32a
 from functools import wraps
 
 _log = logging.getLogger(__name__)
-
-class Settings(object):
-
-    def __get__(self, instance, owner):
-        pass
-
-    def __set__(self, instance, owner):
-        pass
 
 class TransferMode(Bitfield):
     THUMB_TO_PC    = 0x01
@@ -39,8 +31,8 @@ class TransferMode(Bitfield):
     THUMB_TO_DRIVE = 0x04
     FULL_TO_DRIVE  = 0x08
 
-    pc = Flag(0, thumb=0x01, full=0x02)
-    drive =  Flag(0, thumb=0x04, full=0x08)
+    pc = Flag(0, thumb=THUMB_TO_PC, full=FULL_TO_PC)
+    drive =  Flag(0, thumb=THUMB_TO_DRIVE, full=FULL_TO_DRIVE)
 
 
 class CaptureSettings(Bitfield):
@@ -192,9 +184,10 @@ class CaptureSettings(Bitfield):
     IMAGE_FORMAT_RAW_AND_LARGE_FINE_JPEG = (0x34, 0x12, 0x00)
 
     _size = 0x2f
-    image_format = Flag(1, 3,)
+    image_format = Flag(1, 3)
     flash = Flag(0x06, on=0x01, off=0x00)
     beep = Flag(0x07, on=0x01, off=0x00)
+    macro = Flag(0x0d, on=0x03, off=0x01)
     focus_mode = Flag(0x12)
     iso = Flag(0x1a)
     aperture = Flag(0x1c,
@@ -204,7 +197,6 @@ class CaptureSettings(Bitfield):
                     F6_3=0x33, F7_1=0x35, F8=0x38, F9=0x3b, F10=0x3d,
                     F11=0x40, F13=0x43, F14=0x45, F16=0x48, F18=0x4b,
                     F20=0x4d, F22=0x50, F25=0x53, F29=0x55, F32=0x58)
-
     shutter_speed = Flag(0x1e)
     exposure_bias = Flag(0x20)
     shooting_mode = Flag(0x08)
@@ -241,7 +233,7 @@ class CanonCapture(object):
             self._usb.do_command_rc(commands.RC_INIT)
             self._in_rc = True
 
-        self.transfermode = 0x00
+        self.transfermode = TransferMode.FULL_TO_DRIVE
         self._usb.do_command_rc(commands.RC_SET_ZOOM_POS, 0x04, 0x00)
 
     def stop(self):
@@ -277,6 +269,10 @@ class CanonCapture(object):
     @require_active_capture
     def capture(self):
         """
+        TODO: handle transfermode, 
+              implement storing the captured image on the host
+        
+        This should be roughly equivalent to 
         canon_int_capture_image()
         """
         p = self._usb.poller()
@@ -299,6 +295,9 @@ class CanonCapture(object):
         return self._settings
 
     def _set_capture_settings(self, settings):
-        raise NotImplementedError()
-        self._usb.do_command_rc(commands.RC_SET_PARAMS, )
+        payload = array('B')
+        payload.extend(itole32a(0x30))
+        payload.extend(settings)
+        self._usb.do_command_rc(commands.RC_SET_PARAMS, payload=array('B', [0x30]))
+        return self._get_capture_settings()
 

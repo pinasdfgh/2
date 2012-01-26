@@ -18,9 +18,10 @@
 
 """Invoke this script in an interactive console for debugging
 
-bpython2 -i sandbox.py
+bpython2 -i play.py
 
 """
+
 import sys
 import os
 import inspect
