@@ -163,7 +163,7 @@ class Camera(object):
         _log.info("Camera {} being cleaned up".format(self))
         try:
             if self.capture.active:
-                self.rc.stop()
+                self.capture.stop()
         except:
             pass
         self._usb = None

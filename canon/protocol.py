@@ -31,16 +31,6 @@ _log = logging.getLogger(__name__)
 
 MAX_CHUNK_SIZE = 0x1400
 
-class CommandHeader(Bitfield):
-    _size = 0x50
-    
-
-class Command(object):
-    """ TODO:
-    """
-    def __init__(self):
-        pass
-
 class CanonUSB(object):
     """Communicate with a Canon camera, old style.
 

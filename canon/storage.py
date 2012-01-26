@@ -148,7 +148,6 @@ class CanonStorage(object):
         payload[4:8] = itole32a(protocol.MAX_CHUNK_SIZE)
         payload.extend(array('B', self._normalize_path(path)))
         payload.append(0x00)
-#        with target:
         for chunk in self._usb.do_command_iter(commands.GET_FILE, payload):
             target.write(chunk.tostring())
 

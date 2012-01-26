@@ -13,6 +13,7 @@
 #
 #  You should have received a copy of the GNU General Public License
 #  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+from canon.util import itole32a
 
 
 """
@@ -25,6 +26,45 @@ TODO: Pythonify this code: commands should be objects with the
       built in.
 """
 
+from array import array
+
+class Command(object):
+    cmd1 = None
+    cmd2 = None
+    cmd3 = None
+    
+    def __init__(self, payload):
+        assert isinstance(payload, array)
+        self._packet = self._construct_packet(payload)
+    
+    def _construct_packet(self, payload):
+        payload_length = len(payload) if payload else 0
+        request_size = itole32a(payload_length + 0x10)
+
+        self._cmd_serial += ((self._cmd_serial % 8)) or 5 # just playin'
+        if self._cmd_serial > 65530:
+                self._cmd_serial = 0
+        serial = itole32a(self._cmd_serial)
+        serial[2] = 0x12
+
+        # what we dump on the pipe
+        packet = array('B', [0] * 0x50) # 80 byte command block
+
+        packet[0:4] = request_size
+        # just works, gphoto2 does magic for other camera classes
+        packet[0x40] = 0x02
+        packet[0x44] = self.cmd1
+        packet[0x47] = self.cmd2
+        packet[4:8] = itole32a(self.cmd3)
+        packet[0x48:0x48+4] = request_size # again
+        packet[0x4c:0x4c+4] = serial
+
+        if payload is not None:
+            packet.extend(array('B', payload))
+
+        return packet
+
+        
 # Regular camera and storage commands
 
 GET_FILE = {
