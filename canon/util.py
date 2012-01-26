@@ -20,7 +20,6 @@ import struct
 import string
 from array import array
 import inspect
-from orca.orca import isDiacriticalKey
 import math
 
 ARRAY_FORMAT = [None, 'B', '<H', '<I', '<I', '<Q', '<Q', '<Q', '<Q']
