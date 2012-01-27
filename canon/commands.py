@@ -51,10 +51,12 @@ class Command(object):
     def __init__(self, payload=None):
         assert ((isinstance(payload, array) and payload.itemsize == 1)
                     or payload is None)
-        self._packet = self._construct_packet(payload)
-
-    def _construct_packet(self, payload):
         payload_length = len(payload) if payload else 0
+        self._command_header = self._construct_packet(payload_length)
+        self.payload = payload
+        self._response_header = None
+
+    def _construct_command_header(self, payload_length=0):
         request_size = itole32a(payload_length + 0x10)
 
         self._cmd_serial
@@ -63,11 +65,14 @@ class Command(object):
         serial = itole32a(self._cmd_serial)
         serial[2] = 0x12
 
-        # what we dump on the pipe
+        # we dump a 0x50 (80) byte command block
+        # the first 0x40 of which are some kind of standard header
+        # the next 0x10 seem to be the header for the next layer
+        # but it's all the same for us
         packet = array('B', [0] * 0x50) # 80 byte command block
 
         packet[0:4] = request_size
-        # just works, gphoto2 does magic for other camera classes
+        # 0x02 just works, gphoto2 does magic for other camera classes
         packet[0x40] = 0x02
         packet[0x44] = self.cmd1
         packet[0x47] = self.cmd2
@@ -75,11 +80,13 @@ class Command(object):
         packet[0x48:0x48+4] = request_size # again
         packet[0x4c:0x4c+4] = serial
 
-        if payload is not None:
-            packet.extend(array('B', payload))
-
         return packet
-
+    
+class VariableResponseCommand(Command):
+    cmd3 = 0x202
+    
+class FixedResponseCommand(Command):
+    cmd3 = 0x201
 
 # Regular camera and storage commands
 
