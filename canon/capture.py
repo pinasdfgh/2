@@ -275,17 +275,15 @@ class CanonCapture(object):
         This should be roughly equivalent to 
         canon_int_capture_image()
         """
-        p = self._usb.poller()
-        self._usb.do_command_rc(commands.RC_SHUTTER_RELEASE)
-        now = time.time()
-        while (len(p.received) < 2*0x10):
-            if time.time() - now > 10:
-                _log.warn("Capture is taking longer than 10 seconds ...")
-                p.stop()
-                return
-            time.sleep(1)
-        p.stop()
-        _log.info("Capture completed")
+        with self._usb.poller() as p:
+            self._usb.do_command_rc(commands.RC_SHUTTER_RELEASE)
+            now = time.time()
+            while (len(p.received) < 2*0x10):
+                if time.time() - now > 10:
+                    _log.warn("Capture is taking longer than 10 seconds ...")
+                    return
+                time.sleep(1)
+            _log.info("Capture completed")
 
     def _get_capture_settings(self):
         data = self._usb.do_command_rc(commands.RC_GET_PARAMS)
