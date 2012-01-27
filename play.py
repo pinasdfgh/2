@@ -23,11 +23,15 @@ bpython2 -i play.py
 """
 
 import sys
+print sys.argv
 import os
 import inspect
 
 if len(sys.argv) > 1:
     os.environ['PYUSB_DEBUG_LEVEL'] = sys.argv[1]
+
+print sys.argv
+
 
 import logging
 import time

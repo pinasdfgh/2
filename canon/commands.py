@@ -29,19 +29,35 @@ TODO: Pythonify this code: commands should be objects with the
 from array import array
 
 class Command(object):
+    """A USB camera command.
+
+    Subclasses of ``Command`` are concrete commands to be executed on the
+    camera. Instances thereof can run themselves on a CanonUSB instance and
+    should each implement some sort of response parsing.
+    """
+
     cmd1 = None
     cmd2 = None
     cmd3 = None
-    
-    def __init__(self, payload):
-        assert isinstance(payload, array)
+    min_response_length = 0x40
+
+    _cmd_serial = 0
+
+    @classmethod
+    def _next_serial(cls):
+        cls._cmd_serial += ((cls._cmd_serial % 8)) or 5 # just playin'
+        return cls._cmd_serial
+
+    def __init__(self, payload=None):
+        assert ((isinstance(payload, array) and payload.itemsize == 1)
+                    or payload is None)
         self._packet = self._construct_packet(payload)
-    
+
     def _construct_packet(self, payload):
         payload_length = len(payload) if payload else 0
         request_size = itole32a(payload_length + 0x10)
 
-        self._cmd_serial += ((self._cmd_serial % 8)) or 5 # just playin'
+        self._cmd_serial
         if self._cmd_serial > 65530:
                 self._cmd_serial = 0
         serial = itole32a(self._cmd_serial)
@@ -64,7 +80,7 @@ class Command(object):
 
         return packet
 
-        
+
 # Regular camera and storage commands
 
 GET_FILE = {

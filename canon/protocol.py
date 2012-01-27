@@ -31,6 +31,7 @@ _log = logging.getLogger(__name__)
 
 MAX_CHUNK_SIZE = 0x1400
 
+
 class CanonUSB(object):
     """Communicate with a Canon camera, old style.
 
