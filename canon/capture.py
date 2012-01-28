@@ -30,7 +30,7 @@ class TransferMode(Bitfield):
     FULL_TO_PC     = 0x02
     THUMB_TO_DRIVE = 0x04
     FULL_TO_DRIVE  = 0x08
-
+    _size = 1
     pc = Flag(0, thumb=THUMB_TO_PC, full=FULL_TO_PC)
     drive =  Flag(0, thumb=THUMB_TO_DRIVE, full=FULL_TO_DRIVE)
 
@@ -184,6 +184,7 @@ class CaptureSettings(Bitfield):
     IMAGE_FORMAT_RAW_AND_LARGE_FINE_JPEG = (0x34, 0x12, 0x00)
 
     _size = 0x2f
+
     image_format = Flag(1, 3)
     flash = Flag(0x06, on=0x01, off=0x00)
     beep = Flag(0x07, on=0x01, off=0x00)
@@ -210,6 +211,61 @@ def require_active_capture(func):
                          .format(func.__name__))
     return wrapper
 
+class RemoteControlCommand(commands.FixedResponseCommand):
+    cmd1 = 0x13
+    cmd2 = 0x12
+    cmd3 = 0x201
+    subcmd = None
+    subcmd_resplen = None
+    _required_props = (commands.FixedResponseCommand._required_props +
+                       ['subcmd'])
+    first_chunk_size = 0x40
+
+    def __init__(self, payload=None, serial=None):
+        cmd_payload = itole32a(self.subcmd)
+        if payload is not None:
+            cmd_payload.extend(payload)
+
+        super(RemoteControlCommand, self).__init__(cmd_payload, serial)
+
+    @property
+    def resplen(self):
+        if self.subcmd_resplen is not None:
+            return self.subcmd_resplen
+        return 0x40
+
+    def _correct_resplen(self, already_got=0):
+        if self.subcmd_resplen is not None:
+            # must rely on response header probably
+            _log.info("{} resplen unknown, response says 0x{:x}"
+                      .format(self, self.response_length))
+        elif self.response_length != self.resplen:
+            _log.warn("BAD response length, correcting 0x{:x} to 0x{:x} "
+                      .format(self.resplen, self.response_length))
+        return self.response_length - already_got
+
+class RCInitCmd(RemoteControlCommand):
+    subcmd = 0x00
+    subcmd_resplen = 0x1c
+
+class RCGetParams():
+    subcmd = 0x0a
+    subcmd_resplen = 0x4c
+    def _parse_response(self, data):
+        return data
+
+class RCSetTransfermodeCmd(RemoteControlCommand):
+    subcmd = 0x09
+    subcmd_resplen = 0x1c
+    def __init__(self, transfermode):
+        if isinstance(transfermode, array):
+            assert array.itemsize == 1
+            assert len(transfermode) == 4
+        else:
+            transfermode = itole32a(int(transfermode))
+        payload = itole32a(0x04) + transfermode
+        super(RCSetTransfermodeCmd, self).__init__(payload)
+
 class CanonCapture(object):
     def __init__(self, usb):
         self._usb = usb
@@ -222,19 +278,27 @@ class CanonCapture(object):
         if self._in_rc and not force:
             _log.info("remote capture already active, force me")
             return
+
         for _ in range(3):
-            self._usb.interrupt_read(0x10, ignore_timeouts=True)
+            if not self._usb.interrupt_read(0x10, ignore_timeouts=True):
+                break
             time.sleep(0.3)
 
         # if keys are not locked RC INIT fails, maybe
         commands.GenericLockKeysCmd().execute(self._usb)
 
+        # anyone willing to screw Canon's agreements and
+        # sniff the SDK a bit?
+
         # 5 seconds seem more than enough
         with self._usb.timeout_ctx(5000):
-            self._usb.do_command_rc(commands.RC_INIT)
+            RCInitCmd().execute(self._usb)
             self._in_rc = True
 
+        # initially set the transfermode to something known
         self.transfermode = TransferMode.FULL_TO_DRIVE
+
+        # wtf is that?
         self._usb.do_command_rc(commands.RC_SET_ZOOM_POS, 0x04, 0x00)
 
     def stop(self):
@@ -261,11 +325,7 @@ class CanonCapture(object):
     @transfermode.setter
     @require_active_capture
     def transfermode(self, flags):
-        if isinstance(flags, array):
-            flags = le32toi(flags)
-        else:
-            flags = int(flags)
-        self._usb.do_command_rc(commands.RC_SET_TRANSFER_MODE, 0x04, flags)
+        RCSetTransfermodeCmd(flags).execute(self._usb)
 
     @require_active_capture
     def capture(self):

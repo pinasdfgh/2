@@ -14,7 +14,6 @@
 #  You should have received a copy of the GNU General Public License
 #  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
 import logging
 
 from canon import protocol, commands
@@ -149,6 +148,19 @@ class GetFileCmd(commands.VariableResponseCommand):
 class CanonStorage(object):
     def __init__(self, usb):
         self._usb = usb
+        self._drive = None
+
+    def get_drive(self):
+        """Returns the Windows-like camera FS root.
+        """
+        self._drive = commands.IdentifyFlashDeviceCmd().execute(self._usb)
+        return self._drive
+
+    @property
+    def drive(self):
+        if not self._drive:
+            self.get_drive()
+        return self._drive
 
     def ls(self, path=None, recurse=12):
         """Return an FSEntry for the path or storage root.
@@ -161,12 +173,21 @@ class CanonStorage(object):
 
     def walk(self, path=None):
         root = self.ls(path, recurse=24)
-        for entry in root:
-            if entry.is_dir:
-                dirpath = entry.full_path
-                dirnames = [e.name for e in entry if e.is_dir]
-                filenames = [e.name for e in entry if e.is_file]
-                yield (dirpath, dirnames, filenames)
+        queue = [root]
+        while True:
+            if not len(queue):
+                break
+            entry = queue.pop(0)
+            dirpath = entry.full_path
+            dirnames = []
+            filenames = []
+            for child in entry:
+                if child.is_dir:
+                    dirnames.append(child.name)
+                    queue.append(child)
+                else:
+                    filenames.append(child.name)
+            yield (dirpath, dirnames, filenames)
 
     def get_file(self, path, target, thumbnail=False):
         """Download a file from the camera.
@@ -180,17 +201,16 @@ class CanonStorage(object):
         path = self._normalize_path(path)
         GetFileCmd(path, target, thumbnail).execute(self._usb)
 
-    def get_drive(self):
-        """Returns the Windows-like camera FS root.
-        """
-        self._drive = commands.IdentifyFlashDeviceCmd().execute(self._usb)
-        return self._drive
+    def mkdir(self):
+        raise NotImplementedError()
 
-    @property
-    def drive(self):
-        if not self._drive:
-            self.get_drive()
-        return self._drive
+    def rmdir(self):
+        raise NotImplementedError()
+
+    def put_file(self):
+        raise NotImplementedError()
+
+    # ...
 
     def _normalize_path(self, path):
         if path is None:

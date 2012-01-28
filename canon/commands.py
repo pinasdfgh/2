@@ -95,11 +95,16 @@ class Command(object):
 
     @classmethod
     def is_complete_command(cls):
-        return all((getattr(cls, p, False)
-                    for p in cls._required_props))
+        for p in cls._required_props:
+            if not hasattr(cls, p):
+                return False
+            if getattr(cls, p) is None:
+                return False
+        return True
 
     def __init__(self, payload=None, serial=None):
-        assert self.is_complete_command()
+        if not self.is_complete_command():
+            raise AssertionError('{} is incomplete?'.format(self))
         assert ((isinstance(payload, array) and payload.itemsize == 1)
                     or payload is None)
 
@@ -272,6 +277,7 @@ class Command(object):
 class VariableResponseCommand(Command):
     cmd3 = 0x202
     first_chunk_size = 0x40
+
     @property
     def response_length(self):
         """Return the response length, excluding the first 0x40 bytes.
@@ -302,18 +308,30 @@ class FixedResponseCommand(Command):
     _required_props = Command._required_props + ['resplen']
 
     @property
+    def response_length(self):
+        """Extract resplen from the response header
+
+        For cmd3=0x201 (fixed response length) commands word at 0x00 is
+        response length excluding the first 0x40, as well as the word at
+        0x48, the header of the next layer?
+
+        """
+        if not self.response_header:
+            raise CanonError("_send() this command first.")
+        return le32toi(self.response_header, 0)
+
+    @property
     def first_chunk_size(self):
         return self.next_chunk_size(self.resplen + 0x40)
 
-    def _reader(self, usb, first_chunk):
-        remaining = self.resplen - len(first_chunk)
-        # word at 0x48 is response length excluding the first 0x40
-        # but also, word at 0x00 is response length excluding the first 0x40
-        resp_len = le32toi(self._response_header, 0)
-        if resp_len != self.resplen:
+    def _correct_resplen(self, already_got=0):
+        if self.response_length != self.resplen:
             _log.warn("BAD response length, correcting 0x{:x} to 0x{:x} "
-                      .format(self.resplen, resp_len))
-            remaining = resp_len - len(first_chunk)
+                      .format(self.resplen, self.response_length))
+        return self.response_length - already_got
+
+    def _reader(self, usb, first_chunk):
+        remaining = self._correct_resplen(len(first_chunk))
 
         if len(first_chunk) < 0x0c:
             # need another chunk to get to the response length
@@ -322,8 +340,6 @@ class FixedResponseCommand(Command):
             remaining -= chunk_len
 
         assert len(first_chunk) >= 0x0c
-
-
 
         # word at 0x50 is status byte
         self.status = le32toi(first_chunk, 0x10)

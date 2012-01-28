@@ -168,6 +168,10 @@ class CanonUSB(object):
 
     def initialize(self):
         """Bring the camera into a state where it accepts commands.
+
+        There:
+        http://www.graphics.cornell.edu/~westin/canon/ch03.html#sec.USBCameraInit
+
         """
         try:
             cfg = self.device.get_active_configuration()
@@ -183,18 +187,16 @@ class CanonUSB(object):
             except USBError, e:
                 _log.info("Clearing HALT on {} failed: {}".format(ep, e))
 
-        with self.poller_ctx() as p:
-            # do the init dance
-            with self.timeout_ctx(5000):
-                camstat = self.control_read(0x55, 1).tostring()
-                if camstat not in ('A', 'C'):
-                    raise CanonError('Some kind of init error, camstat: %s', camstat)
+        with self.poller_ctx() as p, self.timeout_ctx(5000):
+            camstat = self.control_read(0x55, 1).tostring()
+            if camstat not in ('A', 'C'):
+                raise CanonError('Some kind of init error, camstat: %s', camstat)
 
-                msg = self.control_read(0x01, 0x58)
-                if camstat == 'A':
-                    _log.debug("Camera was already active")
-                    self.control_read(0x04, 0x50)
-                    return camstat
+            msg = self.control_read(0x01, 0x58)
+            if camstat == 'A':
+                _log.debug("Camera was already active")
+                self.control_read(0x04, 0x50)
+                return camstat
 
             _log.debug("Camera woken up, initializing")
             msg[0:0x40] = array('B', [0]*0x40)
@@ -207,7 +209,9 @@ class CanonUSB(object):
             while len(p.received) < 0x10:
                 time.sleep(0.2)
                 if time.time() - started > 5.0:
-                    raise CanonError("Waited for interrupt in data for too long!")
+                    #raise CanonError("Waited for interrupt in data for too long!")
+                    _log.error("Waited for interrupt data for too long!!!")
+                    break
 
             cnt = 0
             while cnt < 4:
