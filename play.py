@@ -65,7 +65,6 @@ DEBUG = logging.DEBUG
 
 cam = None
 
-
 def loglevel(ll=None):
     if ll is not None:
         return canon.log.setLevel(ll)
@@ -76,7 +75,7 @@ def replay():
         log.info("reloading {}".format(name))
         reload(mod)
     reload(canon)
-    init()
+    return init()
 
 def init():
     global cam
@@ -84,6 +83,7 @@ def init():
     if not cam:
         return
     cam.initialize()
+    return cam
 
 def main():
     log.info(" *** GAME STARTING ***")
