@@ -43,10 +43,12 @@ class CommandMeta(type):
         if not parents:
             return super_new(cls, name, bases, attrs)
 
-        attrs["order"] = len(COMMANDS)
-
         new_class = super_new(cls, name, bases, attrs)
-        COMMANDS.append(new_class)
+        if new_class.is_complete_command():
+#            print "COMPLETE: {}".format(new_class)
+            COMMANDS.append(new_class)
+#        else:
+#            print "NOT COMPLETE: {}".format(new_class)
         return new_class
 
 #    def __init__(cls, name, bases, attrs):
@@ -93,7 +95,7 @@ class Command(object):
 
     @classmethod
     def is_complete_command(cls):
-        return all((cls.__dict__.get(p, False) is not False
+        return all((getattr(cls, p, False)
                     for p in cls._required_props))
 
     def __init__(self, payload=None, serial=None):
@@ -241,14 +243,14 @@ class Command(object):
                   .format(self, self.serial))
 
         # control out, then bulk in the first chunk
-        self.control_write(0x10, self.command_header + self.payload)
-        data = self.bulk_read(self.first_chunk_size)
+        usb.control_write(0x10, self.command_header + self.payload)
+        data = usb.bulk_read(self.first_chunk_size)
 
         # store the response header
         self.response_header = data[:0x40]
 
         # return an iterator over the response data
-        return self._reader(data[0x40:])
+        return self._reader(usb, data[0x40:])
 
     def _reader(self, usb, first_chunk):
         raise NotImplementedError()
@@ -287,37 +289,56 @@ class VariableResponseCommand(Command):
 
 class FixedResponseCommand(Command):
     cmd3 = 0x201
-    resplen = None
+    resplen = None # the total data length to read, excluding the first 0x40
 
     _required_props = Command._required_props + ['resplen']
 
     @property
-    @classmethod
-    def first_chunk_size(cls):
-        return cls.next_chunk_size(cls.resplen)
+    def first_chunk_size(self):
+        return self.next_chunk_size(self.resplen + 0x40)
 
-    def _reader(self, first_chunk):
+    def _reader(self, usb, first_chunk):
+        remaining = self.resplen - len(first_chunk)
         if len(first_chunk) < 0x0c:
             # need another chunk to get to the response length
-            chunk_len = self.next_chunk_size(remaining_len)
-            first_chunk.extend(self.bulk_read(chunk_len))
-            remaining_len -= chunk_len
+            chunk_len = self.next_chunk_size(remaining)
+            first_chunk.extend(usb.bulk_read(chunk_len))
+            remaining -= chunk_len
 
         assert len(first_chunk) >= 0x0c
 
         # word at 0x48 is response length excluding the first 0x40
         resp_len = le32toi(first_chunk[0x08:0x0c])
-        if resp_len + 0x40 != self.min_resplen:
-            _log.warn("BAD resp_len, correcting 0x{:x} to 0x{:x} "
-                      .format(self.min_resplen, resp_len))
-            remaining_len = resp_len + 0x40 - len(data)
+        if resp_len != self.resplen:
+            _log.warn("BAD response length, correcting 0x{:x} to 0x{:x} "
+                      .format(self.resplen, resp_len))
+            remaining = resp_len - len(first_chunk)
 
         # word at 0x50 is status byte
-        status = le32toi(data, 0x50)
+        self.status = le32toi(first_chunk, 0x10)
         _log.info("<<< {0.name:s} #{1:0} status: 0x{2:x} "
-                  .format(self, self.serial, status))
-        return reader(remaining_len)
+                  .format(self, self.serial, self.status))
 
+        yield first_chunk
+
+        for chunk_size in self.chunk_sizes(remaining):
+            yield usb.bulk_read(chunk_size)
+
+
+IDENTIFY_CAMERA = {
+    'c_idx': 'IDENTIFY_CAMERA',
+    'description': "Identify camera",
+    'cmd1': 0x01,
+    'cmd2': 0x12,
+    'cmd3': 0x201,
+    'return_length': 0x9c }
+
+class IdentifyCameraCmd(FixedResponseCommand):
+    """Identify camera.
+    """
+    cmd1 = 0x01
+    cmd2 = 0x12
+    resplen = 0x9c - 0x40
 
 # Regular camera and storage commands
 
@@ -786,3 +807,5 @@ def lookup_rc(subcmd):
         if c['value'] == subcmd:
             return c['c_idx']
 
+if __name__ == '__main__':
+    print COMMANDS
