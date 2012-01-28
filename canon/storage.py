@@ -86,24 +86,16 @@ class FSEntry(object):
     def __str__(self):
         return self.full_path
 
-
-
-class CanonStorage(object):
-    def __init__(self, usb):
-        self._usb = usb
-
-    def ls(self, path=None, recurse=12):
-        """Return an FSEntry for the path, storage root by default.
-
-        By default this will return the tree starting at ``path`` with large
-        enough recursion depth to cover every file on the FS.
-        """
-        path = self._normalize_path(path)
+class ListDirectoryCmd(commands.VariableResponseCommand):
+    cmd1 = 0x0b
+    cmd2 = 0x11
+    def __init__(self, path=None, recurse=12):
         payload = array('B', [recurse])
         payload.extend(array('B', path))
         payload.extend(array('B', [0x00] * 3))
-        data = self._usb.do_command(commands.GET_DIR, payload, False)
+        super(ListDirectoryCmd, self).__init__(payload)
 
+    def _parse_response(self, data):
         def extract_entry(data):
             idx = 0
             while True:
@@ -134,6 +126,35 @@ class CanonStorage(object):
                 current = entry
             _log.info(entry)
 
+class GetFileCmd(commands.VariableResponseCommand):
+    cmd1 = 0x01
+    cmd2 = 0x11
+    def __init__(self, path, target, thumbnail=False):
+        payload = array('B', [0x00]*8)
+        payload[0] = 0x01 if thumbnail else 0x00
+        payload[4:8] = itole32a(protocol.MAX_CHUNK_SIZE)
+        payload.extend(array('B', self._normalize_path(path)))
+        payload.append(0x00)
+        self._target = target
+        super(GetFileCmd, self).__init__(payload)
+    def execute(self, usb):
+        reader = self._send(usb)
+        for chunk in reader:
+            self._target.write(chunk)
+
+class CanonStorage(object):
+    def __init__(self, usb):
+        self._usb = usb
+
+    def ls(self, path=None, recurse=12):
+        """Return an FSEntry for the path or storage root.
+
+        By default this will return the tree starting at ``path`` with large
+        enough recursion depth to cover every file on the FS.
+        """
+        path = self._normalize_path(path)
+        return ListDirectoryCmd(path, recurse).execute(self._usb)
+
     def get_file(self, path, target, thumbnail=False):
         """Download a file from the camera.
 
@@ -143,19 +164,13 @@ class CanonStorage(object):
         """
         if not hasattr(target, 'write'):
             target = open(target, 'wb+')
-        payload = array('B', [0x00]*8)
-        payload[0] = 0x01 if thumbnail else 0x00
-        payload[4:8] = itole32a(protocol.MAX_CHUNK_SIZE)
-        payload.extend(array('B', self._normalize_path(path)))
-        payload.append(0x00)
-        for chunk in self._usb.do_command_iter(commands.GET_FILE, payload):
-            target.write(chunk.tostring())
+        path = self._normalize_path(path)
+        GetFileCmd(path, target, thumbnail).execute(self._usb)
 
     def get_drive(self):
         """Returns the Windows-like camera FS root.
         """
-        resp = self._usb.do_command(commands.FLASH_DEVICE_IDENT, full=False)
-        return extract_string(resp)
+        return commands.IdentifyFlashDeviceCmd().execute(self._usb)
 
     def _normalize_path(self, path):
         drive = self.get_drive()

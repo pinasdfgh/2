@@ -424,7 +424,8 @@ class GetPicAbilitiesCmd(FixedResponseCommand):
             height = le32toi(data, offset + 20)
             width = le32toi(data, offset + 24)
             z_types = le32toi(data, offset + 28)
-            _log.info(" {:-3} - {:20} {}x{} {:x}".format(i, name, width, height, z_types))
+            _log.info(" {:-3} - {:20} {}x{} {:x}"
+                      .format(i, name, width, height, z_types))
             offset += 32
             abilities.append((name, height, width, z_types))
 

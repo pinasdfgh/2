@@ -227,7 +227,8 @@ class CanonCapture(object):
             time.sleep(0.3)
 
         # if keys are not locked RC INIT fails, maybe
-        self._usb.do_command(commands.GENERIC_LOCK_KEYS)
+        commands.GenericLockKeysCmd().execute(self._usb)
+
         # 5 seconds seem more than enough
         with self._usb.timeout_ctx(5000):
             self._usb.do_command_rc(commands.RC_INIT)
