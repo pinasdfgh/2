@@ -135,7 +135,7 @@ class CanonUSB(object):
 
     @property
     def is_polling(self):
-        return self._poller and self._poller.isAlive()
+        return bool(self._poller and self._poller.isAlive())
 
     @property
     def poller(self):

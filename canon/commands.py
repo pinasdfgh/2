@@ -28,7 +28,7 @@ TODO: Pythonify this code: commands should be objects with the
 import logging
 from array import array
 
-from canon.util import itole32a, le32toi
+from canon.util import itole32a, le32toi, extract_string, le16toi
 
 _log = logging.getLogger(__name__)
 
@@ -240,7 +240,7 @@ class Command(object):
         """
         _log.info(">>> {0.name:s} (0x{0.cmd1:x}, 0x{0.cmd2:x}, "
                   "0x{0.cmd3:x}), #{1:0}"
-                  .format(self, self.serial))
+                  .format(self, self.serial & 0x0000ffff))
 
         # control out, then bulk in the first chunk
         usb.control_write(0x10, self.command_header + self.payload)
@@ -255,12 +255,19 @@ class Command(object):
     def _reader(self, usb, first_chunk):
         raise NotImplementedError()
 
+    def _parse_response(self, data):
+        return data
+
     def execute(self, usb):
         reader = self._send(usb)
         data = array('B')
         for chunk in reader:
             data.extend(chunk)
-        return data
+        return self._parse_response(data)
+
+    def __repr__(self):
+        return '<{} 0x{:x} 0x{:x} 0x{:x} at 0x{:x}>'.format(
+                    self.name, self.cmd1, self.cmd2, self.cmd3, hash(self))
 
 class VariableResponseCommand(Command):
     cmd3 = 0x202
@@ -277,7 +284,8 @@ class VariableResponseCommand(Command):
         _log.debug("variable response says 0x{:x} bytes follow"
                    .format(self.response_length))
         _log.info("<<< {0.name:s} #{1:0} retlen 0x{2:x} "
-                  .format(self, self.serial, self.response_length + 0x40))
+                  .format(self, self.serial & 0x0000ffff,
+                          self.response_length + 0x40))
 
         # this is normally empty, but let's make sure
         if first_chunk:
@@ -299,6 +307,14 @@ class FixedResponseCommand(Command):
 
     def _reader(self, usb, first_chunk):
         remaining = self.resplen - len(first_chunk)
+        # word at 0x48 is response length excluding the first 0x40
+        # but also, word at 0x00 is response length excluding the first 0x40
+        resp_len = le32toi(self._response_header, 0)
+        if resp_len != self.resplen:
+            _log.warn("BAD response length, correcting 0x{:x} to 0x{:x} "
+                      .format(self.resplen, resp_len))
+            remaining = resp_len - len(first_chunk)
+
         if len(first_chunk) < 0x0c:
             # need another chunk to get to the response length
             chunk_len = self.next_chunk_size(remaining)
@@ -307,17 +323,13 @@ class FixedResponseCommand(Command):
 
         assert len(first_chunk) >= 0x0c
 
-        # word at 0x48 is response length excluding the first 0x40
-        resp_len = le32toi(first_chunk[0x08:0x0c])
-        if resp_len != self.resplen:
-            _log.warn("BAD response length, correcting 0x{:x} to 0x{:x} "
-                      .format(self.resplen, resp_len))
-            remaining = resp_len - len(first_chunk)
+
 
         # word at 0x50 is status byte
         self.status = le32toi(first_chunk, 0x10)
         _log.info("<<< {0.name:s} #{1:0} status: 0x{2:x} "
-                  .format(self, self.serial, self.status))
+                  .format(self, self.serial & 0x0000ffff,
+                          self.status))
 
         yield first_chunk
 
@@ -325,20 +337,98 @@ class FixedResponseCommand(Command):
             yield usb.bulk_read(chunk_size)
 
 
-IDENTIFY_CAMERA = {
-    'c_idx': 'IDENTIFY_CAMERA',
-    'description': "Identify camera",
-    'cmd1': 0x01,
-    'cmd2': 0x12,
-    'cmd3': 0x201,
-    'return_length': 0x9c }
-
 class IdentifyCameraCmd(FixedResponseCommand):
     """Identify camera.
     """
     cmd1 = 0x01
     cmd2 = 0x12
-    resplen = 0x9c - 0x40
+    resplen = 0x5c
+    def _parse_response(self, data):
+        model = extract_string(data, 0x1c)
+        owner = extract_string(data, 0x3c)
+        version = '.'.join([str(x) for x in data[0x1b:0x17:-1]])
+        return model, owner, version
+
+class IdentifyFlashDeviceCmd(VariableResponseCommand):
+    """Flash device identification.
+    """
+
+    cmd1 = 0x0a
+    cmd2 = 0x11
+    def _parse_response(self, data):
+        return extract_string(data)
+
+class GenericLockKeysCmd(FixedResponseCommand):
+    """Lock keys and turn off LCD
+    """
+    cmd1 = 0x20
+    cmd2 = 0x12
+    resplen = 0x14
+
+class SetOwnerCmd(FixedResponseCommand):
+    """Change camera owner
+    """
+    cmd1 = 0x05
+    cmd2 = 0x12
+    resplen = 0x14
+    def __init__(self, owner):
+        payload = array('B', owner + '\x00')
+        super(SetOwnerCmd, self).__init__(payload)
+
+class GetOwnerCmd(FixedResponseCommand):
+    """Doesn't appear to be supported by the G3.
+    """
+    cmd1 = 0x05
+    cmd2 = 0x12
+    resplen = 0x34
+
+class GetTimeCmd(FixedResponseCommand):
+    cmd1 = 0x03
+    cmd2 = 0x12
+    resplen = 0x20
+    def _parse_response(self, data):
+        return le32toi(data, 0x14)
+
+class SetTimeCmd(FixedResponseCommand):
+    cmd1 = 0x04
+    cmd2 = 0x12
+    resplen = 0x14
+    def __init__(self, new_timestamp):
+        payload = itole32a(new_timestamp) + array('B', [0] * 8)
+        super(SetTimeCmd, self).__init__(payload)
+
+class GetPowerStatusCmd(FixedResponseCommand):
+    cmd1 = 0x0a
+    cmd2 = 0x12
+    resplen = 0x58
+
+class CheckACPowerCmd(GetPowerStatusCmd):
+    def _parse_response(self, data):
+        return bool((data[0x17] & 0x20) == 0x00)
+
+class GetPicAbilitiesCmd(FixedResponseCommand):
+    cmd1 = 0x1f
+    cmd2 = 0x12
+    resplen = 0x354
+    def _parse_response(self, data):
+        struct_size = le16toi(data, 0x14)
+        model_id = le32toi(data[0x16:0x1a])
+        camera_name = extract_string(data, 0x1a)
+        num_entries = le32toi(data, 0x3a)
+        _log.info("abilities of {} (0x{:x}): 0x{:x} long, n={}"
+                 .format(camera_name, model_id, struct_size, num_entries))
+        offset = 0x3e
+        abilities = []
+        for i in xrange(num_entries):
+            name = extract_string(data, offset)
+            height = le32toi(data, offset + 20)
+            width = le32toi(data, offset + 24)
+            z_types = le32toi(data, offset + 28)
+            _log.info(" {:-3} - {:20} {}x{} {:x}".format(i, name, width, height, z_types))
+            offset += 32
+            abilities.append((name, height, width, z_types))
+
+        return abilities
 
 # Regular camera and storage commands
 

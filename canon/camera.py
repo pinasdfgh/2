@@ -70,7 +70,7 @@ class Camera(object):
         self._usb = protocol.CanonUSB(device)
         self._storage = CanonStorage(self._usb)
         self._capture = CanonCapture(self._usb)
-        self._in_rc = False
+        self._abilities = None
 
     @property
     def storage(self):
@@ -90,7 +90,8 @@ class Camera(object):
             return
         _log.info("camera will be initialized")
         self._usb.initialize()
-        self._usb.do_command(commands.GENERIC_LOCK_KEYS)
+        c = commands.GenericLockKeysCmd()
+        c.execute(self._usb)
 
     @property
     def ready(self):
@@ -102,11 +103,8 @@ class Camera(object):
     def identify(self):
         """ identify() -> (model, owner, version)
         """
-        data = self._usb.do_command(commands.IDENTIFY_CAMERA, full=False)
-        model = extract_string(data, 0x1c)
-        owner = extract_string(data, 0x3c)
-        version = '.'.join([str(x) for x in data[0x1b:0x17:-1]])
-        return model, owner, version
+        c = commands.IdentifyCameraCmd()
+        return c.execute(self._usb)
 
     @property
     def owner(self):
@@ -116,7 +114,7 @@ class Camera(object):
 
     @owner.setter
     def owner(self, owner):
-        self._usb.do_command(commands.CAMERA_CHOWN, owner + '\x00')
+        commands.SetOwnerCmd(owner).execute(self._usb)
 
     @property
     def model(self):
@@ -132,8 +130,7 @@ class Camera(object):
     def camera_time(self):
         """Get the current date and time stored and ticking on the camera.
         """
-        resp = self._usb.do_command(commands.GET_TIME, full=False)
-        return le32toi(resp[0x14:0x14 + 4])
+        return commands.GetTimeCmd().execute(self._usb)
 
     @camera_time.setter
     def camera_time(self, new):
@@ -142,43 +139,31 @@ class Camera(object):
         Currently only accepts an UNIX timestamp, should be translated
         to the local timezone.
         """
+        # TODO: convert to local tz, accept datetime
         if new is None:
-            # TODO: convert to local tz, accept datetime
             new = time.time()
         new = int(new)
-        self._usb.do_command(commands.SET_TIME, itole32a(new) + array('B', [0] * 8))
-        return self.camera_time
+        commands.SetTimeCmd(new).execute(self._usb)
 
     @property
     def on_ac(self):
         """True if the camera is not running on battery power.
         """
-        data = self._usb.do_command(commands.POWER_STATUS, full=False)
-        return bool((data[0x17] & 0x20) == 0x00)
+#        data = commands.GetPowerStatusCmd().execute(self._usb)
+#        return bool((data[0x17] & 0x20) == 0x00)
+        return commands.CheckACPowerCmd().execute(self._usb)
 
     @property
     def abilities(self):
         """ http://www.graphics.cornell.edu/~westin/canon/ch03s25.html
         """
-        data = self._usb.do_command(commands.GET_PIC_ABILITIES, full=True)
-        struct_size = le16toi(data, 0x54)
-        model_id = le32toi(data[0x56:0x5a])
-        camera_name = extract_string(data, 0x5a)
-        num_entries = le32toi(data, 0x7a)
-        _log.info("abilities of {} (0x{:x}): 0x{:x} long, n={}"
-                 .format(camera_name, model_id, struct_size, num_entries))
-        offset = 0x7e
-        abilities = []
-        for i in xrange(num_entries):
-            name = extract_string(data, offset)
-            height = le32toi(data, offset + 20)
-            width = le32toi(data, offset + 24)
-            z_types = le32toi(data, offset + 28)
-            _log.info(" {:-3} - {:20} {}x{} {:x}".format(i, name, width, height, z_types))
-            offset += 32
-            abilities.append((name, height, width, z_types))
+        if not self._abilities:
+            return self.get_abilities()
+        return self._abilities
 
-        return abilities
+    def get_abilities(self):
+        self._abilities = commands.GetPicAbilitiesCmd().execute(self._usb)
+        return self._abilities
 
     def cleanup(self):
         _log.info("Camera {} being cleaned up".format(self))
