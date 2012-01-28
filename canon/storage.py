@@ -75,6 +75,10 @@ class FSEntry(object):
     def is_dir(self):
         return self.attr.is_dir
 
+    @property
+    def is_file(self):
+        return not self.attr.is_dir
+
     def __iter__(self):
         yield self
         for entry in itertools.chain(*self.children):
@@ -155,6 +159,15 @@ class CanonStorage(object):
         path = self._normalize_path(path)
         return ListDirectoryCmd(path, recurse).execute(self._usb)
 
+    def walk(self, path=None):
+        root = self.ls(path, recurse=24)
+        for entry in root:
+            if entry.is_dir:
+                dirpath = entry.full_path
+                dirnames = [e.name for e in entry if e.is_dir]
+                filenames = [e.name for e in entry if e.is_file]
+                yield (dirpath, dirnames, filenames)
+
     def get_file(self, path, target, thumbnail=False):
         """Download a file from the camera.
 
@@ -170,17 +183,23 @@ class CanonStorage(object):
     def get_drive(self):
         """Returns the Windows-like camera FS root.
         """
-        return commands.IdentifyFlashDeviceCmd().execute(self._usb)
+        self._drive = commands.IdentifyFlashDeviceCmd().execute(self._usb)
+        return self._drive
+
+    @property
+    def drive(self):
+        if not self._drive:
+            self.get_drive()
+        return self._drive
 
     def _normalize_path(self, path):
-        drive = self.get_drive()
         if path is None:
             path = ''
         if isinstance(path, FSEntry):
             path = path.full_path
         path = path.replace('/', '\\')
-        if not path.startswith(drive):
-            path = '\\'.join([drive, path]).rstrip('\\')
+        if not path.startswith(self.drive):
+            path = '\\'.join([self.drive, path]).rstrip('\\')
         return path
 
 
