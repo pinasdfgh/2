@@ -43,6 +43,27 @@ def find():
     return Camera(dev)
 
 class Camera(object):
+    """Interface with a Camera.
+
+    A camera should look like this:
+    >>> cam.owner                        # supports a number of properties
+        'The owner string'
+    >>> cam.owner = 'Mine!'              # some of which writable
+    >>> cam.owner
+        'Mine!'
+    >>> cam.fs_walk()                    # os.walk() but over camera storage
+    >>> cam.fs_get(filename, target)     # store contents of filename to
+                                         # the file-like object ``target``
+    >>> cam.begin_capture()              # capture mode is special
+    >>> cam.end_capture()
+    >>> cam.in_capture
+        True
+    >>> cam.shooting_mode
+    >>> cam.image_format
+    >>> cam.iso
+    >>> cam.speed
+    >>> cam.capture()
+    """
 
     def __init__(self, device):
         self._device = device

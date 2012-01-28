@@ -223,7 +223,7 @@ class CanonCapture(object):
             _log.info("remote capture already active, force me")
             return
         for _ in range(3):
-            self._usb.poll_interrupt(0x10, ignore_timeouts=True)
+            self._usb.interrupt_read(0x10, ignore_timeouts=True)
             time.sleep(0.3)
 
         # if keys are not locked RC INIT fails, maybe
@@ -269,13 +269,13 @@ class CanonCapture(object):
     @require_active_capture
     def capture(self):
         """
-        TODO: handle transfermode, 
+        TODO: handle transfermode,
               implement storing the captured image on the host
-        
-        This should be roughly equivalent to 
+
+        This should be roughly equivalent to
         canon_int_capture_image()
         """
-        with self._usb.poller() as p:
+        with self._usb.poller_ctx() as p:
             self._usb.do_command_rc(commands.RC_SHUTTER_RELEASE)
             now = time.time()
             while (len(p.received) < 2*0x10):

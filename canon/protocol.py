@@ -14,6 +14,19 @@
 #  You should have received a copy of the GNU General Public License
 #  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+"""Communicate with a Canon camera, old style.
+
+This protocol implementation is heavily based on
+http://www.graphics.cornell.edu/~westin/canon/index.html
+and gphoto2's source. Sporadic comments here are mostly copied from
+gphoto's source and docs.
+
+-- need to put that somewhere --
+wValue differs between operations.
+wIndex is always 0x00
+wLength is simply the length of data.
+
+"""
 
 import time
 import threading
@@ -21,8 +34,8 @@ import logging
 from array import array
 from contextlib import contextmanager
 
-from usb.core import USBError
 import usb.util
+from usb.core import USBError
 
 from canon import commands, CanonError
 from canon.util import le32toi, hexdump, itole32a, Bitfield
@@ -31,68 +44,58 @@ _log = logging.getLogger(__name__)
 
 MAX_CHUNK_SIZE = 0x1400
 
+class InterruptPoller(threading.Thread):
+    """Poll the interrupt pipe on a CanonUSB.
+
+    This should not be instantiated directly, but via CanonUSB.poller
+    """
+    def __init__(self, usb, size=None, chunk=0x10, timeout=None):
+        threading.Thread.__init__(self)
+        self.usb = usb
+        self.should_stop = False
+        self.size = size
+        self.chunk = chunk
+        self.received = array('B')
+        self.timeout = int(timeout) if timeout is not None else 150
+        self.setDaemon(True)
+
+    def run(self):
+        errors = 0
+        while errors < 10:
+            if self.should_stop: return
+            try:
+                chunk = self.usb.interrupt_read(self.chunk, self.timeout)
+                if chunk:
+                    self.received.extend(chunk)
+                if (self.size is not None
+                        and len(self.received) >= self.size):
+                    _log.info("poller got 0x{:x} bytes, needed 0x{:x}"
+                              ", exiting".format(len(self.received),
+                                                 self.size))
+                    return
+                if self.should_stop:
+                    _log.info("poller stop requested, exiting")
+                    return
+                time.sleep(0.1)
+            except (USBError, ) as e:
+                if e.errno == 110: # timeout, ignore
+                    continue
+                if e.errno == 16: # resource busy, bail
+                    _log.warn("interrupt pipe busy: {}".format(e))
+                    return
+                _log.warn("poll: {}".format(e))
+                errors += 1
+        _log.info("poller got too many errors, exiting")
+
+    def stop(self):
+        self.should_stop = True
+        self.join()
 
 class CanonUSB(object):
-    """Communicate with a Canon camera, old style.
-
-    This protocol implementation is heavily based on
-    http://www.graphics.cornell.edu/~westin/canon/index.html
-    and gphoto2's source. Sporadic comments here are mostly copied from
-    gphoto's source and docs.
-
-    -- need to put that somewhere --
-
-
-    wValue differs between operations.
-    wIndex is always 0x00
-    wLength is simply the length of data.
-
+    """USB Link to the camera.
     """
-
-    class InterruptPoller(threading.Thread):
-        def __init__(self, usb, size=None, chunk=0x10, timeout=None):
-            threading.Thread.__init__(self)
-            self.usb = usb
-            self.should_stop = False
-            self.size = size
-            self.chunk = chunk
-            self.received = array('B')
-            self.timeout = int(timeout) if timeout is not None else 150
-            self.setDaemon(True)
-
-        def run(self):
-            errors = 0
-            while errors < 10:
-                if self.should_stop: return
-                try:
-                    chunk = self.usb.poll_interrupt(self.chunk, self.timeout)
-                    if chunk:
-                        self.received.extend(chunk)
-                    if (self.size is not None
-                            and len(self.received) >= self.size):
-                        _log.info("poller got 0x{:x} bytes, needed 0x{:x}"
-                                  ", exiting".format(len(self.received),
-                                                     self.size))
-                        return
-                    if self.should_stop:
-                        _log.info("poller stop requested, exiting")
-                        return
-                    time.sleep(0.1)
-                except (USBError, ) as e:
-                    if e.errno == 110: # timeout, ignore
-                        continue
-                    if e.errno == 16: # resource busy, bail
-                        _log.warn("poll: {}".format(e))
-                        return
-                    _log.warn("poll: {}".format(e))
-                    errors += 1
-            _log.info("poller got too many errors, exiting")
-
-        def stop(self):
-            self.should_stop = True
-            self.join()
-
     def __init__(self, device):
+        self.max_chunk_size = MAX_CHUNK_SIZE
         self.device = device
         self.device.default_timeout = 500
         self.iface = iface = device[0][0,0]
@@ -108,23 +111,44 @@ class CanonUSB(object):
     def timeout_ctx(self, new):
         old = self.device.default_timeout
         self.device.default_timeout = new
-        _log.info("timeout_ctx: {} -> {}".format(old, new))
+        _log.info("timeout_ctx: {} ms -> {} ms".format(old, new))
         now = time.time()
         try:
             yield
         finally:
-            _log.info("timeout_ctx: {} <- {}; back in {:.5f} s"
-                      .format(old, new, time.time() - now))
+            _log.info("timeout_ctx: {} ms <- {} ms; back in {:.3f} ms"
+                      .format(old, new, (time.time() - now) * 1000))
             self.device.default_timeout = old
 
-    @contextmanager
-    def poller(self, size=None, timeout=None):
-        if self._poller:
-            self._poller.stop()
-        self._poller = self.InterruptPoller(self, size, timeout=timeout)
+    def start_poller(self, size=None, timeout=None):
+        if self._poller and self._poller.isAlive():
+            raise CanonError("Poller already started.")
+        self._poller = InterruptPoller(self, size, timeout=timeout)
         self._poller.start()
+
+    def stop_poller(self):
+        if not self._poller:
+            raise CanonError("There's no poller to stop.")
+        if self._poller.isAlive():
+            self._poller.stop()
+        self._poller = None
+
+    @property
+    def is_polling(self):
+        return self._poller and self._poller.isAlive()
+
+    @property
+    def poller(self):
+        return self._poller
+
+    @contextmanager
+    def poller_ctx(self, size=None, timeout=None):
+        if self.is_polling:
+            raise CanonError("Cannot enter poller context while already polling")
+        self.start_poller(size, timeout)
         yield self._poller
-        self._poller.stop()
+        if self.is_polling:
+            self.stop_poller()
 
     def is_ready(self):
         """Check if the camera has been initialized by issuing IDENTIFY_CAMERA.
@@ -134,6 +158,7 @@ class CanonUSB(object):
 
         """
         try:
+#            from canon.commands import IdentifyCamera
             self.do_command(commands.IDENTIFY_CAMERA)
             return True
         except (USBError, CanonError):
@@ -158,25 +183,25 @@ class CanonUSB(object):
             except USBError, e:
                 _log.info("Clearing HALT on {} failed: {}".format(ep, e))
 
-        with self.poller() as p:
+        with self.poller_ctx() as p:
             # do the init dance
             with self.timeout_ctx(5000):
-                camstat = self._control_read(0x55, 1).tostring()
+                camstat = self.control_read(0x55, 1).tostring()
                 if camstat not in ('A', 'C'):
                     raise CanonError('Some kind of init error, camstat: %s', camstat)
 
-                msg = self._control_read(0x01, 0x58)
+                msg = self.control_read(0x01, 0x58)
                 if camstat == 'A':
                     _log.debug("Camera was already active")
-                    self._control_read(0x04, 0x50)
+                    self.control_read(0x04, 0x50)
                     return camstat
 
             _log.debug("Camera woken up, initializing")
             msg[0:0x40] = array('B', [0]*0x40)
             msg[0] = 0x10
             msg[0x40:] = msg[-0x10:]
-            self._control_write(0x11, msg)
-            self._bulk_read(0x44)
+            self.control_write(0x11, msg)
+            self.bulk_read(0x44)
 
             started = time.time()
             while len(p.received) < 0x10:
@@ -195,7 +220,7 @@ class CanonUSB(object):
 
             raise CanonError("identify_camera failed too many times")
 
-    def _control_read(self, wValue, data_length=0, timeout=None):
+    def control_read(self, wValue, data_length=0, timeout=None):
         # bRequest is 0x4 if length of data is >1, 0x0c otherwise (length >1 ? 0x04 : 0x0C)
         bRequest = 0x04 if data_length > 1 else 0x0c
         _log.info("CTRL IN (req: 0x{:x} wValue: 0x{:x}) reading 0x{:x} bytes"
@@ -209,10 +234,10 @@ class CanonUSB(object):
         _log.debug('\n' + hexdump(response))
         return response
 
-    def _control_write(self, wValue, data='', timeout=None):
+    def control_write(self, wValue, data='', timeout=None):
         # bRequest is 0x4 if length of data is >1, 0x0c otherwise (length >1 ? 0x04 : 0x0C)
         bRequest = 0x04 if len(data) > 1 else 0x0c
-        _log.info("CTRL OUT (rt: 0x{:x}, req: 0x{:x}, wValue: 0x{:x}) 0x{:x} bytes"
+        _log.info("control_write (rt: 0x{:x}, req: 0x{:x}, wValue: 0x{:x}) 0x{:x} bytes"
                   .format(0x40, bRequest, wValue, len(data)))
         _log.debug("\n" + hexdump(data))
         # bmRequestType is 0xC0 during read and 0x40 during write.
@@ -222,23 +247,23 @@ class CanonUSB(object):
             raise CanonError("control write was incomplete")
         return i
 
-    def _bulk_read(self, size, timeout=None):
+    def bulk_read(self, size, timeout=None):
         start = time.time()
         data = self.ep_in.read(size, timeout)
         end = time.time()
         data_size = len(data)
         if not data_size == size:
-            _log.warn("BAD bulk in 0x{:x} bytes instead of 0x{:x}"
+            _log.warn("bulk_read: WRONG SIZE: 0x{:x} bytes instead of 0x{:x}"
                       .format(data_size, size))
             _log.debug('\n' + hexdump(data))
             raise CanonError("unexpected data length ({} instead of {})"
                           .format(len(data), size))
-        _log.info("bulk in got {} (0x{:x}) b in {:.6f} sec"
+        _log.info("bulk_read got {} (0x{:x}) b in {:.6f} sec"
                   .format(len(data), len(data), end-start))
         _log.debug("\n" + hexdump(data))
         return data
 
-    def poll_interrupt(self, size, timeout=100, ignore_timeouts=False):
+    def interrupt_read(self, size, timeout=100, ignore_timeouts=False):
         try:
             data = self.ep_int.read(size, timeout)
         except USBError, e:
@@ -247,7 +272,7 @@ class CanonUSB(object):
             raise
         if data is not None and len(data):
             dlen = len(data)
-            _log.info("poll_interrupt got {} 0x{:x} bytes".format(dlen, dlen))
+            _log.info("interrupt_read: got 0x{:x} bytes".format(dlen))
             _log.debug("\n" + hexdump(data))
             return data
         return array('B')
@@ -308,8 +333,8 @@ class CanonUSB(object):
             remaining_len = total_len - first_chunk_len
 
         # control out, then bulk in the first chunk
-        self._control_write(0x10, packet)
-        data = self._bulk_read(first_chunk_len)
+        self.control_write(0x10, packet)
+        data = self.bulk_read(first_chunk_len)
 
         def reader(bytes_to_yield):
             "iterator over the response data from bulk in"
@@ -320,7 +345,7 @@ class CanonUSB(object):
             bytes_yielded = 0
             while bytes_yielded < bytes_to_yield:
                 chunk_len = next_chunk_size(bytes_to_yield - bytes_yielded)
-                yield self._bulk_read(chunk_len)
+                yield self.bulk_read(chunk_len)
                 bytes_yielded += chunk_len
 
         # variable-length response
@@ -338,7 +363,7 @@ class CanonUSB(object):
         if len(data) < 0x4c:
             # need another chunk to get to the response length
             chunk_len = next_chunk_size(remaining_len)
-            data.extend(self._bulk_read(chunk_len))
+            data.extend(self.bulk_read(chunk_len))
             remaining_len -= chunk_len
             assert len(data) >= 0x54
         # word at 0x48 is response length excluding the first 0x40

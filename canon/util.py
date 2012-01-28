@@ -202,7 +202,7 @@ class _BoundFlag(object):
         """
         bytes_ = struct.pack(self._fmt, int(value))
         return self._unpad(bytes_)
-    
+
     def __getattr__(self, name):
         return getattr(self._flag, name)
 
@@ -298,7 +298,7 @@ class Bitfield(array):
     ``cls._size`` to be the length of the bitfield in bytes and any
     number of instances of ``Flag`` as class attributes.
 
-    The ``Flag`` instances provide the descriptor protocol and provide
+    The ``Flag`` instances provide the descriptor protocol and
     convenient access to values of various flag within the array.
 
     """
