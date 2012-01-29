@@ -5,3 +5,4 @@
 *.log
 dist
 doc/build
+sandbox/*.txt

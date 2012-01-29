@@ -19,8 +19,10 @@ import time
 import logging
 from array import array
 
+import usb.core
+
 from canon import commands, CanonError
-from canon.util import Bitfield, Flag, le32toi, itole32a
+from canon.util import Bitfield, Flag, le32toi, itole32a, BooleanFlag
 from functools import wraps
 
 _log = logging.getLogger(__name__)
@@ -188,7 +190,7 @@ class CaptureSettings(Bitfield):
     image_format = Flag(1, 3)
     flash = Flag(0x06, on=0x01, off=0x00)
     beep = Flag(0x07, on=0x01, off=0x00)
-    macro = Flag(0x0d, on=0x03, off=0x01)
+    macro = BooleanFlag(0x0d, true=0x03, false=0x01)
     focus_mode = Flag(0x12)
     iso = Flag(0x1a)
     aperture = Flag(0x1c,
@@ -226,26 +228,31 @@ class RemoteControlCommand(commands.FixedResponseCommand):
         if payload is not None:
             cmd_payload.extend(payload)
         else:
-            cmd_payload.extend([0x00] * 4)
+            cmd_payload.extend([0x00] * 4) # at least one zero word follows
         super(RemoteControlCommand, self).__init__(cmd_payload, serial)
 
     @property
     def resplen(self):
         if self.subcmd_resplen is not None:
             return self.subcmd_resplen
-        return 0x1c # maybe? dont' know ...
+        _log.info("{} with unknown resplen, guessing 0x1c".format(self))
+        return 0x1c # this seems to be the minimum
 
 class InitRemoteControlCmd(RemoteControlCommand):
     subcmd = 0x00
     subcmd_resplen = 0x1c
 
 class ExitRemoteControlCmd(RemoteControlCommand):
-    subcmd = 0x00
+    subcmd = 0x01
     subcmd_resplen = 0x1c
 
 class GetParamsCmd(RemoteControlCommand):
     subcmd = 0x0a
     subcmd_resplen = 0x4c
+
+class SetParamsCmd(RemoteControlCommand):
+    subcmd = 0x07
+    subcmd_resplen = 0x1c
 
 class GetCaptureSettingsCmd(GetParamsCmd):
     def __init__(self):
@@ -255,8 +262,11 @@ class GetCaptureSettingsCmd(GetParamsCmd):
         # RELEASE_PARAMS_LEN in canon.h
         return CaptureSettings(data[0x1c:0x4b])
 
-class SetCaptureSettingsCmd(RemoteControlCommand):
-    pass
+class SetCaptureSettingsCmd(SetParamsCmd):
+    def __init__(self, settings):
+        payload = array('B', itole32a(0x30))
+        payload.extend(settings)
+        super(SetCaptureSettingsCmd, self).__init__(payload)
 
 class SetTransferModeCmd(RemoteControlCommand):
     subcmd = 0x09
@@ -270,13 +280,19 @@ class SetTransferModeCmd(RemoteControlCommand):
 
         # XXX:
         # this one probably has more meaning than just setting
-        # transfermode flags ... 0x04 means something...
+        # transfermode flags ...
         payload = itole32a(0x04) + transfermode
         super(SetTransferModeCmd, self).__init__(payload)
 
 class RCSetZoomPositionCmd(RemoteControlCommand):
     subcmd = 0x0c
     subcmd_resplen = 0x1c
+
+class ShutterReleaseCmd(RemoteControlCommand):
+    subcmd = 0x04
+    subcmd_resplen = 0x1c
+#    def __init__(self, full_image=None, thumbnail=None):
+#        super(ShutterReleaseCmd, self).__init__()
 
 class CanonCapture(object):
     """Manage taking pictures via USB. The whole point.
@@ -327,7 +343,12 @@ class CanonCapture(object):
             return
 
         for _ in range(3):
-            if not self._usb.interrupt_read(0x10, ignore_timeouts=True):
+            try:
+                if not self._usb.interrupt_read(0x10, ignore_timeouts=True):
+                    break
+            except usb.core.USBError, e:
+                _log.warn("While trying to flush the interrupt pipe: {}"
+                          .format(e))
                 break
             time.sleep(0.3)
 
@@ -347,12 +368,10 @@ class CanonCapture(object):
 
         # wtf is that?
         RCSetZoomPositionCmd(array('B', [0x04] + [0x00] * 7))
-#        self._usb.do_command_rc(commands.RC_SET_ZOOM_POS, 0x04, 0x00)
 
     def stop(self):
         with self._usb.timeout_ctx(1000):
             ExitRemoteControlCmd().execute(self._usb)
-#            self._usb.do_command_rc(commands.RC_EXIT)
             self._in_rc = False
 
     @property
@@ -360,7 +379,6 @@ class CanonCapture(object):
         return self._in_rc
 
     def get_capture_settings(self):
-#        data = self._usb.do_command_rc(commands.RC_GET_PARAMS)
         self._settings = GetCaptureSettingsCmd().execute(self._usb)
         _log.info("capture settings from camera: {}".format(self._settings))
         return self._settings
@@ -375,7 +393,10 @@ class CanonCapture(object):
     @property
     @require_active_capture
     def transfermode(self):
-        return self._usb.do_command_rc(commands.RC_GET_PARAMS, 0x04, 0x00)
+        """XXX: Remote Capture 2.5.7 seems to do this in a different manner.
+        """
+        return GetParamsCmd([0x04] + [0x00] * 7).execute(self._usb)
+#        return self._usb.do_command_rc(commands.RC_GET_PARAMS, 0x04, 0x00)
 
     @transfermode.setter
     @require_active_capture
@@ -385,14 +406,9 @@ class CanonCapture(object):
     @require_active_capture
     def capture(self):
         """
-        TODO: handle transfermode,
-              implement storing the captured image on the host
-
-        This should be roughly equivalent to
-        canon_int_capture_image()
         """
         with self._usb.poller_ctx() as p:
-            self._usb.do_command_rc(commands.RC_SHUTTER_RELEASE)
+            ShutterReleaseCmd().execute(self._usb)
             now = time.time()
             while (len(p.received) < 2*0x10):
                 if time.time() - now > 10:
@@ -405,6 +421,6 @@ class CanonCapture(object):
         payload = array('B')
         payload.extend(itole32a(0x30))
         payload.extend(settings)
-        self._usb.do_command_rc(commands.RC_SET_PARAMS, payload=array('B', [0x30]))
-        return self._get_capture_settings()
+        SetCaptureSettingsCmd(settings).execute(self._usb)
+        self.get_capture_settings()
 

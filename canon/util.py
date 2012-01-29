@@ -278,9 +278,16 @@ class BooleanFlag(Flag):
     _size = 1
     class _bound_class(_BoundFlag):
         def __nonzero__(self):
-            if int(self) == self.choices['true']:
+            if int(self) == self._choices['true']:
                 return True
             return False
+        def set_(self, value):
+            if isinstance(value, bool):
+                value = (self._choices['true']
+                         if value
+                         else self._choices['false'])
+            bytes_ = self._pack(value)
+            self._store(bytes_)
 
     def __init__(self, offset=0, length=None, fmt=None, true=0x01, false=0x00):
         choices = dict(true=true, on=true, y=true, yes=true,
