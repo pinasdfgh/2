@@ -87,11 +87,13 @@ class Camera(object):
     def initialize(self, force=False):
         if self._usb.ready and not force:
             _log.info("initialize called, but camera seems up, force me")
-            return
-        _log.info("camera will be initialized")
-        self._usb.initialize()
-        c = commands.GenericLockKeysCmd()
-        c.execute(self._usb)
+        else:
+            _log.info("camera will be initialized")
+            self._usb.initialize()
+
+        commands.GenericLockKeysCmd().execute(self._usb)
+        self._storage.initialize(force)
+        self._capture.initialize(force)
 
     @property
     def ready(self):

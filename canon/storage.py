@@ -150,6 +150,14 @@ class CanonStorage(object):
         self._usb = usb
         self._drive = None
 
+    def initialize(self, force=False):
+        self.get_drive()
+        self.get_disk_info()
+
+    def get_disk_info(self):
+        # TODO
+        pass
+
     def get_drive(self):
         """Returns the Windows-like camera FS root.
         """
