@@ -14,16 +14,33 @@
 #  You should have received a copy of the GNU General Public License
 #  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+import os
+
 from distutils.core import setup
+
+import canon
+
+README = os.path.join(os.path.dirname(__file__), 'README.rst')
 
 setup(
     name='canon-remote',
-    version='0.0.1dev',
-    description='Use old Canon cameras with Python',
-    long_description=open('README.rst', 'r').read(),
+    packages=['canon'],
+    version=canon.__version__,
+    description=canon.__doc__.strip(),
+    long_description=open(README).read(),
     author='Kiril Zyapkov',
     author_email='kiril.zyapkov@gmail.com',
-    url='http://1024.cjb.net',
-    license='GPL',
-    packages=['canon']
+    url='http://packages.python.org/canon-remote/',
+    license='GPLv3',
+    classifiers=[
+        "Programming Language :: Python",
+        "Programming Language :: Python :: 2.7",
+        "Development Status :: 2 - Pre-Alpha",
+        "License :: OSI Approved :: GNU General Public License (GPL)",
+        "Topic :: Artistic Software",
+        "Topic :: Multimedia :: Graphics :: Capture",
+        "Topic :: Multimedia :: Graphics :: Capture :: Digital Camera",
+        "Topic :: System :: Hardware :: Hardware Drivers",
+        "Topic :: Software Development :: Libraries :: Python Modules"
+    ],
 )

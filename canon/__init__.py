@@ -13,10 +13,19 @@
 #
 #  You should have received a copy of the GNU General Public License
 #  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+"""Use old Canon cameras with Python.
+"""
 
-import sys
-import logging
 import os
+import logging
+
+version_info = (0, 0, 1, 'dev')
+
+__author__ = u'Kiril Zyapkov'
+__contact__ = u'<kiril.zyapkov@gmail.com>'
+__version__ = u'.'.join(map(str, version_info[:3]))
+__copyright__ = u'Copyright (c) 2012 Kiril Zyapkov'
+__license__   = u'GPLv3'
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
