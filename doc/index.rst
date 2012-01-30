@@ -8,14 +8,6 @@ Python USB API for Canon digital cameras
 :Version: |release|
 :Last updated: |today|
 
-.. okay, i don't need a TOC for now
-    Contents:
-
-    .. toctree::
-       :maxdepth: 2
-
-       usage
-
 .. include:: ../../README.rst
 
 Installation
