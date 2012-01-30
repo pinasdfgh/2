@@ -7,3 +7,4 @@ dist
 doc/build
 sandbox/*.txt
 *.egg-info
+__pycache__

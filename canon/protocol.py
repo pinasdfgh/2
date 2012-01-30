@@ -144,11 +144,18 @@ class CanonUSB(object):
     @contextmanager
     def poller_ctx(self, size=None, timeout=None):
         if self.is_polling:
-            raise CanonError("Cannot enter poller context while already polling")
-        self.start_poller(size, timeout)
-        yield self._poller
-        if self.is_polling:
-            self.stop_poller()
+            _log.warn("poller_ctx: -> entered while poller was active!")
+            yield
+            _log.warn("poller_ctx: <- pretending this isn't real")
+        else:
+            started = time.time()
+            _log.info("poller_ctx: -> ({}, {})".format(size, timeout))
+            self.start_poller(size, timeout)
+            yield self._poller
+            if self.is_polling:
+                self.stop_poller()
+            _log.info("poller_ctx: <- back in {:.3} ms"
+                      .format((time.time() - started) * 1000))
 
     def is_ready(self):
         """Check if the camera has been initialized.
@@ -207,15 +214,13 @@ class CanonUSB(object):
         started = time.time()
         while len(p.received) < 0x10:
             time.sleep(0.2)
-            if time.time() - started > 5.0: # maybe too long
-                # when this happens we're usually screwed ...
+            if time.time() - started > 3.0: # maybe too long
+                # when this happens we're usually ok to proceed ...
                 #raise CanonError("Waited for interrupt in data for too long!")
                 _log.error("Waited for interrupt data for too long!")
                 break
 
-        cnt = 0
-        while cnt < 4:
-            cnt += 1
+        for _ in range(3):
             try:
                 commands.IdentifyCameraCmd().execute(self)
                 return camstat

@@ -86,7 +86,12 @@ class Camera(object):
             _log.info("initialize called, but camera seems up, force me")
         else:
             _log.info("camera will be initialized")
-            self._usb.initialize()
+            try:
+                self._usb.initialize()
+            except USBError, e:
+                _log.info("the init dance failed: {}".format(e))
+                if not self.ready:
+                    raise
 
         commands.GenericLockKeysCmd().execute(self._usb)
         self._storage.initialize(force)
@@ -94,8 +99,11 @@ class Camera(object):
 
     @property
     def ready(self):
+        if not self._device:
+            return False
         try:
-            return bool(self.identify())
+            self.identify()
+            return True
         except (USBError, CanonError):
             return False
 
@@ -156,8 +164,8 @@ class Camera(object):
     def on_ac(self):
         """True if the camera is not running on battery power.
         """
-#        data = commands.GetPowerStatusCmd().execute(self._usb)
-#        return bool((data[0x17] & 0x20) == 0x00)
+        #data = commands.GetPowerStatusCmd().execute(self._usb)
+        #return bool((data[0x17] & 0x20) == 0x00)
         return commands.CheckACPowerCmd().execute(self._usb)
 
     @property
@@ -173,7 +181,11 @@ class Camera(object):
         return self._abilities
 
     def cleanup(self):
+        if not self._device:
+            return
         _log.info("Camera {} being cleaned up".format(self))
+        usb.util.dispose_resources(self._device)
+        self._device = None
         try:
             if self.capture.active:
                 self.capture.stop()
@@ -182,21 +194,16 @@ class Camera(object):
         self._usb = None
         self._storage = None
         self._capture = None
-        if self._device:
-            usb.util.dispose_resources(self._device)
-            self._device = None
 
     def __repr__(self):
         ret = object.__repr__(self)
         if self.ready:
             try:
-                return "<{} firmware {} owned by {}>".format(self.model, self.firmware_version,
-                                           self.owner)
+                return "<{} v{}>".format(self.model, self.firmware_version)
             except:
                 return ret
         else:
             return ret
-
 
     def __del__(self):
         self.cleanup()

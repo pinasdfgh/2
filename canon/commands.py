@@ -91,7 +91,7 @@ class Command(object):
         cls._cmd_serial += ((cls._cmd_serial % 8)) or 5 # just playin'
         if cls._cmd_serial > 65530:
             cls._cmd_serial = 0
-        return cls._cmd_serial | 0x12<<24
+        return cls._cmd_serial | 0x12<<16
 
     @classmethod
     def is_complete_command(cls):
@@ -419,7 +419,7 @@ class SetTimeCmd(FixedResponseCommand):
 class GetPowerStatusCmd(FixedResponseCommand):
     cmd1 = 0x0a
     cmd2 = 0x12
-    resplen = 0x58
+    resplen = 0x18
 
 class CheckACPowerCmd(GetPowerStatusCmd):
     def _parse_response(self, data):
@@ -442,11 +442,11 @@ class GetPicAbilitiesCmd(FixedResponseCommand):
             name = extract_string(data, offset)
             height = le32toi(data, offset + 20)
             width = le32toi(data, offset + 24)
-            z_types = le32toi(data, offset + 28)
-            _log.info(" {:-3} - {:20} {}x{} {:x}"
-                      .format(i, name, width, height, z_types))
+            idx = le32toi(data, offset + 28)
+            _log.info(" {:-3} - 0x{:04x} {:20} {}x{}"
+                      .format(i, idx, name, width, height))
             offset += 32
-            abilities.append((name, height, width, z_types))
+            abilities.append((idx, name, height, width))
 
         return abilities
 
