@@ -29,13 +29,19 @@ from canon.util import extract_string, le32toi, itole32a, hexdump, le16toi
 
 _log = logging.getLogger(__name__)
 
+# Canon
 VENDORID = 0x04a9
+# PowerShot G3
 PRODUCTID = 0x306e
 
-def find():
-    """Maybe support more cameras one day?
+def find(idVendor=VENDORID, idProduct=PRODUCTID):
+    """Find a canon camera on some usb bus, possibly.
+
+    Pass in idProduct for your particular model, default values are for a
+    PowerShot G3.
+
     """
-    dev = usb.core.find(idVendor=VENDORID, idProduct=PRODUCTID)
+    dev = usb.core.find(idVendor=idVendor, idProduct=idProduct)
     if not dev:
         _log.debug("Unable to find a Canon G3 camera attached to this host")
         return None
@@ -43,26 +49,14 @@ def find():
     return Camera(dev)
 
 class Camera(object):
-    """Interface with a Camera.
+    """\
+    Interface with a Camera.
 
-    A camera should look like this:
-    >>> cam.owner                        # supports a number of properties
-        'The owner string'
-    >>> cam.owner = 'Mine!'              # some of which writable
-    >>> cam.owner
-        'Mine!'
-    >>> cam.fs_walk()                    # os.walk() but over camera storage
-    >>> cam.fs_get(filename, target)     # store contents of filename to
-                                         # the file-like object ``target``
-    >>> cam.begin_capture()              # capture mode is special
-    >>> cam.end_capture()
-    >>> cam.in_capture
-        True
-    >>> cam.shooting_mode
-    >>> cam.image_format
-    >>> cam.iso
-    >>> cam.speed
-    >>> cam.capture()
+    Camera objects are the intended API endpoint. Cameras have two public
+    properties which provide most of the interesting functionality:
+     * ``storage`` for filesystem operations, and
+     * ``capture`` for taking pictures.
+
     """
 
     def __init__(self, device):
@@ -70,7 +64,10 @@ class Camera(object):
         self._usb = protocol.CanonUSB(device)
         self._storage = CanonStorage(self._usb)
         self._capture = CanonCapture(self._usb)
-        self._abilities = None
+        self._abilities =None
+        self._model = None
+        self._owner = None
+        self._firmware_version = None
 
     @property
     def storage(self):
@@ -105,28 +102,36 @@ class Camera(object):
     def identify(self):
         """ identify() -> (model, owner, version)
         """
-        c = commands.IdentifyCameraCmd()
-        return c.execute(self._usb)
+        info = commands.IdentifyCameraCmd().execute(self._usb)
+        (self._model, self._owner, self._firmware_version) = info
+        return info
 
     @property
     def owner(self):
         """The owner of this camera, writable.
         """
-        return self.identify()[1]
+        if not self._owner:
+            return self.identify()[1]
+        return self._owner
 
     @owner.setter
     def owner(self, owner):
         commands.SetOwnerCmd(owner).execute(self._usb)
+        self.identify()
 
     @property
     def model(self):
         """Camera model string as stored on it.
         """
-        return self.identify()[0]
+        if not self._model:
+            return self.identify()[0]
+        return self._model
 
     @property
     def firmware_version(self):
-        return self.identify()[2]
+        if not self._firmware_version:
+            return self.identify()[2]
+        return self._firmware_version
 
     @property
     def camera_time(self):
@@ -185,7 +190,7 @@ class Camera(object):
         ret = object.__repr__(self)
         if self.ready:
             try:
-                return "<{} {} {}>".format(self.model, self.firmware_version,
+                return "<{} firmware {} owned by {}>".format(self.model, self.firmware_version,
                                            self.owner)
             except:
                 return ret

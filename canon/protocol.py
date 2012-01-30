@@ -151,7 +151,7 @@ class CanonUSB(object):
             self.stop_poller()
 
     def is_ready(self):
-        """Check if the camera has been initialized by issuing IDENTIFY_CAMERA.
+        """Check if the camera has been initialized.
 
         gphoto2 source claims that this command doesn't change the state
         of the camera and can safely be issued without any side effects.
@@ -207,9 +207,10 @@ class CanonUSB(object):
         started = time.time()
         while len(p.received) < 0x10:
             time.sleep(0.2)
-            if time.time() - started > 5.0:
+            if time.time() - started > 5.0: # maybe too long
+                # when this happens we're usually screwed ...
                 #raise CanonError("Waited for interrupt in data for too long!")
-                _log.error("Waited for interrupt data for too long!!!")
+                _log.error("Waited for interrupt data for too long!")
                 break
 
         cnt = 0
@@ -224,11 +225,17 @@ class CanonUSB(object):
         raise CanonError("identify_camera failed too many times")
 
     def control_read(self, wValue, data_length=0, timeout=None):
-        # bRequest is 0x4 if length of data is >1, 0x0c otherwise (length >1 ? 0x04 : 0x0C)
+        """Read from the control pipe.
+
+        ``bRequest`` is 0x4 if length of data is >1, 0x0c otherwise (length >1 ? 0x04 : 0x0C)
+        ``bmRequestType`` is 0xC0 during read and 0x40 during write.
+
+        """
+        #
         bRequest = 0x04 if data_length > 1 else 0x0c
         _log.info("control_read (req: 0x{:x} wValue: 0x{:x}) reading 0x{:x} bytes"
                    .format(bRequest, wValue, data_length))
-        # bmRequestType is 0xC0 during read and 0x40 during write.
+
         response = self.device.ctrl_transfer(
                                  0xc0, bRequest, wValue=wValue, wIndex=0,
                                  data_or_wLength=data_length, timeout=timeout)

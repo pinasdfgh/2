@@ -355,6 +355,9 @@ class FixedResponseCommand(Command):
 
 class IdentifyCameraCmd(FixedResponseCommand):
     """Identify camera.
+
+    ``execute()`` -> `(model, owner, version)` strings
+
     """
     cmd1 = 0x01
     cmd2 = 0x12

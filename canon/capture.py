@@ -284,7 +284,7 @@ class SetTransferModeCmd(RemoteControlCommand):
         payload = itole32a(0x04) + transfermode
         super(SetTransferModeCmd, self).__init__(payload)
 
-class RCSetZoomPositionCmd(RemoteControlCommand):
+class SetZoomPositionCmd(RemoteControlCommand):
     subcmd = 0x0c
     subcmd_resplen = 0x1c
 
@@ -367,7 +367,7 @@ class CanonCapture(object):
         self.transfermode = TransferMode.FULL_TO_DRIVE
 
         # wtf is that?
-        RCSetZoomPositionCmd(array('B', [0x04] + [0x00] * 7))
+        SetZoomPositionCmd(array('B', [0x04] + [0x00] * 7))
 
     def stop(self):
         with self._usb.timeout_ctx(1000):
