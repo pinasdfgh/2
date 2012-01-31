@@ -167,12 +167,13 @@ get everything you need is to use the `gphoto-suite`_ "umbrella package"::
 Or, you could only get the source of `libgphoto2` and look at
 ``libgphoto2/camlibs/canon/``.
 
-A way to sniff and analyze USB traffic is a must. I am using the original
-`Remote Capture`_ from Canon on Windows XP within
-a virtualbox_ machine. See `this <http://www.virtualbox.org/manual/ch03.html#idp11216576>`_
-on how to enable USB support in a virtualbox guest. Wireshark_ runs on the host
-sniffing USB traffic. I wrote a small script to parse commands from stored pcap
-files using `pcapy`_.
+A way to sniff and analyze USB traffic is a must. I am using the
+original `Remote Capture`_ from Canon on Windows XP within a
+virtualbox_ machine. See `this
+<http://www.virtualbox.org/manual/ch03.html#idp11216576>`_ on how to
+enable USB support in a virtualbox guest. Wireshark_ runs on the host
+sniffing USB traffic. I wrote a small script to parse commands from
+stored pcap files using `pcapy`_.
 
 .. _`Remote Capture`: http://software.canon-europe.com/software/0019449.asp
 .. _virtualbox: https://www.virtualbox.org/
