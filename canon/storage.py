@@ -136,7 +136,7 @@ class GetFileCmd(commands.VariableResponseCommand):
         payload = array('B', [0x00]*8)
         payload[0] = 0x01 if thumbnail else 0x00
         payload[4:8] = itole32a(protocol.MAX_CHUNK_SIZE)
-        payload.extend(array('B', self._normalize_path(path)))
+        payload.extend(array('B', path))
         payload.append(0x00)
         self._target = target
         super(GetFileCmd, self).__init__(payload)

@@ -49,9 +49,7 @@ def find(idVendor=VENDORID, idProduct=PRODUCTID):
     return Camera(dev)
 
 class Camera(object):
-    """\
-    Interface with a Camera.
-
+    """
     Camera objects are the intended API endpoint. Cameras have two public
     properties which provide most of the interesting functionality:
      * ``storage`` for filesystem operations, and

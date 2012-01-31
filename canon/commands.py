@@ -35,9 +35,7 @@ _log = logging.getLogger(__name__)
 COMMANDS = []
 
 class CommandMeta(type):
-    needed_props = ['cmd1', 'cmd2', 'cmd3', 'min_resplen']
     def __new__(cls, name, bases, attrs):
-#        print "CommandMeta.__new__({}, {}, {}, {})".format(cls, name, bases, attrs)
         super_new = super(CommandMeta, cls).__new__
         parents = [b for b in bases if isinstance(b, CommandMeta)]
         if not parents:
@@ -45,32 +43,26 @@ class CommandMeta(type):
 
         new_class = super_new(cls, name, bases, attrs)
         if new_class.is_complete_command():
-#            print "COMPLETE: {}".format(new_class)
             COMMANDS.append(new_class)
-#        else:
-#            print "NOT COMPLETE: {}".format(new_class)
         return new_class
-
-#    def __init__(cls, name, bases, attrs):
-#        print "CommandMeta.__init__({}, {}, {}, {})".format(cls, name, bases, attrs)
-
 
 class Command(object):
     """A USB camera command.
 
-    Subclasses of Command are concrete commands to be executed on the
-    camera. Instances thereof can run themselves on a CanonUSB instance and
-    should each implement some sort of response parsing.
+    Subclasses of :class:`Command` are concrete commands to be executed on the
+    camera. Instances thereof can run themselves on a :class:`CanonUSB`
+    instance and should each implement some sort of response parsing.
 
     cmd1, cmd2 and cmd3 define the command to be executed.
 
     All of the following properties need to be set for a command class:
 
-    cmd1 is a command code.
-    cmd2 is 0x11 for storage and 0x12 for control commands.
-    cmd3 is 0x201 for fixed-response-length commands and
-            0x202 for variable length.
-    min_resplen is how many bytes we expect to read
+    ``cmd1`` is a command code.
+
+    ``cmd2`` is `0x11` for storage and `0x12` for control commands.
+
+    ``cmd3`` is `0x201` for fixed-response-length commands and
+    `0x202` for variable length.
 
     """
     __metaclass__ = CommandMeta
@@ -78,7 +70,6 @@ class Command(object):
     cmd1 = None
     cmd2 = None
     cmd3 = None
-    min_resplen = 0x40
 
     MAX_CHUNK_SIZE = 0x1400
 
@@ -243,7 +234,7 @@ class Command(object):
         response payload.
 
         """
-        _log.info(">>> {0.name:s} (0x{0.cmd1:x}, 0x{0.cmd2:x}, "
+        _log.info("--> {0.name:s} (0x{0.cmd1:x}, 0x{0.cmd2:x}, "
                   "0x{0.cmd3:x}), #{1:0}"
                   .format(self, self.serial & 0x0000ffff))
 
@@ -289,7 +280,7 @@ class VariableResponseCommand(Command):
     def _reader(self, usb, first_chunk):
         _log.debug("variable response says 0x{:x} bytes follow"
                    .format(self.response_length))
-        _log.info("<<< {0.name:s} #{1:0} retlen 0x{2:x} "
+        _log.info("<-- {0.name:s} #{1:0} retlen 0x{2:x} "
                   .format(self, self.serial & 0x0000ffff,
                           self.response_length + 0x40))
 
@@ -343,7 +334,7 @@ class FixedResponseCommand(Command):
 
         # word at 0x50 is status byte
         self.status = le32toi(first_chunk, 0x10)
-        _log.info("<<< {0.name:s} #{1:0} status: 0x{2:x} "
+        _log.info("<-- {0.name:s} #{1:0} status: 0x{2:x} "
                   .format(self, self.serial & 0x0000ffff,
                           self.status))
 

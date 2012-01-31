@@ -16,7 +16,6 @@
 """Use old Canon cameras with Python.
 """
 
-import os
 import logging
 
 version_info = (0, 0, 1, 'dev')
