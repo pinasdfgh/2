@@ -98,27 +98,23 @@ class ListDirectoryCmd(commands.VariableResponseCommand):
         payload.extend(array('B', [0x00] * 3))
         super(ListDirectoryCmd, self).__init__(payload)
 
-    def _parse_response(self, data):
-        def extract_entry(data):
-            idx = 0
-            while True:
-                name = extract_string(data, idx+10)
-                if not name:
-                    raise StopIteration()
-                entry = FSEntry(name, attributes=data[idx:idx+1],
-                                size=le32toi(data[idx+2:idx+6]),
-                                timestamp=le32toi(data[idx+6:idx+10]))
-                idx += entry.entry_size
-                yield entry
+    def _entry_generator(self, data):
+        idx = 0
+        while True:
+            name = extract_string(data, idx+10)
+            if not name:
+                raise StopIteration()
+            entry = FSEntry(name, attributes=data[idx:idx+1],
+                            size=le32toi(data[idx+2:idx+6]),
+                            timestamp=le32toi(data[idx+6:idx+10]))
+            idx += entry.entry_size
+            yield entry
 
-        entry_generator = iter(extract_entry(data))
+    def _parse_response(self, data):
+        entry_generator = self._entry_generator(data)
         root = entry_generator.next()
         current = root
-        while True:
-            try:
-                entry = entry_generator.next()
-            except StopIteration:
-                return root
+        for entry in entry_generator:
             if entry.name == '..':
                 current = current.parent
                 continue
@@ -128,6 +124,9 @@ class ListDirectoryCmd(commands.VariableResponseCommand):
                 entry.name = entry.name[2:]
                 current = entry
             _log.info(entry)
+
+        return root
+
 
 class GetFileCmd(commands.VariableResponseCommand):
     cmd1 = 0x01
@@ -145,6 +144,7 @@ class GetFileCmd(commands.VariableResponseCommand):
         for chunk in reader:
             self._target.write(chunk)
 
+
 class CanonStorage(object):
     def __init__(self, usb):
         self._usb = usb
@@ -152,11 +152,10 @@ class CanonStorage(object):
 
     def initialize(self, force=False):
         self.get_drive()
-        self.get_disk_info()
+        #self.get_disk_info()
 
     def get_disk_info(self):
-        # TODO
-        pass
+        raise NotImplementedError()
 
     def get_drive(self):
         """Returns the Windows-like camera FS root.
@@ -171,25 +170,25 @@ class CanonStorage(object):
         return self._drive
 
     def ls(self, path=None, recurse=12):
-        """Return an FSEntry for the path or storage root.
+        """Return a class:`FSEntry` for the path or storage root.
 
         By default this will return the tree starting at ``path`` with large
-        enough recursion depth to cover every file on the FS.
+        enough recursion depth to cover every file on the camera storage.
         """
         path = self._normalize_path(path)
         return ListDirectoryCmd(path, recurse).execute(self._usb)
 
     def walk(self, path=None):
-        root = self.ls(path, recurse=24)
+        """Iterate over camera storage contents, like ``os.walk()``.
+        """
+        root = self.ls(path)
         queue = [root]
-        while True:
-            if not len(queue):
-                break
+        while len(queue):
             entry = queue.pop(0)
             dirpath = entry.full_path
             dirnames = []
             filenames = []
-            for child in entry:
+            for child in entry.children:
                 if child.is_dir:
                     dirnames.append(child.name)
                     queue.append(child)
