@@ -1,14 +1,15 @@
 About this project
-------------------
+==================
 
 canon-remote_ is a USB library for Canon digital cameras in Python
-with  pyusb_. It originally started as a Python port of gphoto2_'s
-`Canon library`_ for a PowerShot G3. Only the subset necessary for
-this model was ported, but it should be usable with other models from
-that era (not without hacking) and will almost surely not work on much
-newer cameras, not without serious hacking. The project was created
-because gphoto2 lacks support for certain remote capture features,
-namely locking the autofocus and setting the autofocus mode to macro.
+with  pyusb_, speaking the so-called `normal mode`. It originally
+started  as a Python port of gphoto2_'s `Canon library`_ for a
+PowerShot G3. Only the subset necessary for this model was ported, but
+it should be usable with other models from that era (not without
+hacking) and will almost surely not work on much newer cameras, not
+without serious hacking. The project was created because gphoto2 lacks
+support for certain remote capture features, namely locking the
+autofocus and setting the autofocus mode to macro.
 
 The latest project documentation can be found at the `project homepage`_.
 Or you can build it from source.

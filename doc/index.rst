@@ -12,14 +12,44 @@ Python USB API for Canon digital cameras
     .. toctree::
         reference/canon
 
-Overview
-========
+..
+    Overview
+    ========
 
-The contents of `README.rst`  follow, may as well skip `forward`_.
+    The contents of `README.rst`  follow, may as well skip `forward`_.
 
 .. include:: ./../README.rst
 
 .. _forward:
+
+Related projects
+================
+
+gphoto2_
+    canon-remote wouldn't have existed if the USB protocol wasn't already
+    reverse-engineered, and all the credit for that should go to gphoto2_.
+    I can only imagine how many hours of sniffing USB packets and staring
+    at hexdumps it took. Gphoto is great, but it is generic and huge. While
+    it is actively developed, supports a vast number of cameras, has been
+    extensively tested and comes with GUI tools, userspace filesystem d
+    river, etc. etc., hacking it is a serious business, especially for
+    someone not-so-much-C-profficient-or-keen.
+
+capture_
+    If Gphoto2 doesn't quite cut it for you, this will. Unless your camera
+    is too old (like mine).
+
+pycanon_
+    A python wrapper for Canon's SDK. Couldn't use that, because Canon want
+    you to agree not to reverse engineer it and/or release the information.
+    Also, I don't own a Windows machine.
+
+s10sh_
+    This is another really old little tool which talks to Canons.
+
+.. _s10sh: http://www.reynoldsnet.org/s10sh/
+.. _pycanon: http://pypi.python.org/pypi/pycanon/
+.. _capture: http://capture.sourceforge.net/
 
 Installation
 ============
@@ -120,22 +150,35 @@ The ``cam`` object above has two more interesting attributes:
     :attr:`capture`
         which allows taking pictures.
 
-If you're into hacking this, I recommend adding the path to your working
-copy of `canon-remote` to a .pth file, or using virutalenv. You could set the
-logging level to DEBUG to see all USB traffic and other helpful stuff.
+Not much of those has been implemented, tested or documented yet.
 
-Related Projects
-================
+Development
+===========
 
-http://www.gphoto.org/
+This is what I did to setup the environemnt `canon-remote` was developed in.
+I am sure there are other approaches, but this may be helpful for anyone
+willing to give it a shot.
 
-http://www.reynoldsnet.org/s10sh/
+Checkout `gphoto2`. It's a bundle of software packages, the easiest way to
+get everything you need is to use the `gphoto-suite`_ "umbrella package"::
 
-http://www.kyuzz.org/antirez/s10sh.html
+    $ svn co https://svn.sourceforge.net/svnroot/gphoto/trunk/gphoto-suite gphoto-suite
 
-http://www.darkskiez.co.uk/index.php?page=Canon_Camera_Hacking
+Or, you could only get the source of `libgphoto2` and look at
+``libgphoto2/camlibs/canon/``.
 
-http://alexbernstein.com/wiki/canon-digital-rebel-300d-hacking/
+A way to sniff and analyze USB traffic is a must. I am using the original
+`Remote Capture`_ from Canon on Windows XP within
+a virtualbox_ machine. See `this <http://www.virtualbox.org/manual/ch03.html#idp11216576>`_
+on how to enable USB support in a virtualbox guest. Wireshark_ runs on the host
+sniffing USB traffic. I wrote a small script to parse commands from stored pcap
+files using `pcapy`_.
+
+.. _`Remote Capture`: http://software.canon-europe.com/software/0019449.asp
+.. _virtualbox: https://www.virtualbox.org/
+.. _gphoto-suite: https://svn.sourceforge.net/svnroot/gphoto/trunk/gphoto-suite
+.. _Wireshark: http://wiki.wireshark.org/CaptureSetup/USB
+.. _pcapy: http://oss.coresecurity.com/projects/pcapy.html
 
 Indices and tables
 ==================

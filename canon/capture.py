@@ -297,26 +297,8 @@ class ShutterReleaseCmd(RemoteControlCommand):
 class CanonCapture(object):
     """Manage taking pictures via USB. The whole point.
 
-    shooting modes: program, manual, AP, TP
+    shooting modes: P, M, Av, Tv
 
-    validity matrix
-
-    always valid
-
-    Flash
-    Image Size
-    Image Quality
-    Focusing Point
-    Beep
-
-    depending on shooting mode
-
-    Shooting Mode              Manual    Program    AP    TP
-    Tv - Shutter Speed         1
-    Av - Aperture Value        1
-    AF Mode                    1
-    Flash Compensation         1(flash?)
-    Exposure Compensation      0
     Metering Mode              0
     White Balance              1
 
@@ -392,19 +374,64 @@ class CanonCapture(object):
 
     @property
     @require_active_capture
-    def transfermode(self):
+    def transfer_mode(self):
         """XXX: Remote Capture 2.5.7 seems to do this in a different manner.
         """
         return GetParamsCmd([0x04] + [0x00] * 7).execute(self._usb)
 #        return self._usb.do_command_rc(commands.RC_GET_PARAMS, 0x04, 0x00)
 
-    @transfermode.setter
+    @transfer_mode.setter
     @require_active_capture
-    def transfermode(self, flags):
+    def transfer_mode(self, flags):
         SetTransferModeCmd(flags).execute(self._usb)
 
+    @property
     @require_active_capture
-    def capture(self):
+    def shooting_mode(self):
+        raise NotImplementedError()
+
+    @property
+    @require_active_capture
+    def iso_speed(self):
+        raise NotImplementedError()
+
+    @property
+    @require_active_capture
+    def aperture(self):
+        raise NotImplementedError()
+
+    @property
+    @require_active_capture
+    def shutter_speed(self):
+        raise NotImplementedError()
+
+    @property
+    @require_active_capture
+    def white_balance(self):
+        raise NotImplementedError()
+
+    @property
+    @require_active_capture
+    def flash(self):
+        raise NotImplementedError()
+
+    @property
+    @require_active_capture
+    def image_mode(self):
+        raise NotImplementedError()
+
+    @property
+    @require_active_capture
+    def flash_compensation(self):
+        raise NotImplementedError()
+
+    @property
+    @require_active_capture
+    def exposure_compensation(self):
+        raise NotImplementedError()
+
+    @require_active_capture
+    def __call__(self):
         """
         """
         with self._usb.poller_ctx() as p:
@@ -424,3 +451,4 @@ class CanonCapture(object):
         SetCaptureSettingsCmd(settings).execute(self._usb)
         self.get_capture_settings()
 
+    capture = __call__
