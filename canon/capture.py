@@ -426,6 +426,19 @@ class CanonCapture(object):
     def exposure_compensation(self):
         raise NotImplementedError()
 
+    @property
+    @require_active_capture
+    def macro(self):
+        return self.settings.macro
+
+    @macro.setter
+    @require_active_capture
+    def macro(self, enabled):
+        enabled = bool(enabled)
+        self.settings.macro = enabled
+        self._set_capture_settings(self.settings)
+        self.get_capture_settings()
+
     @require_active_capture
     def __call__(self):
         """
