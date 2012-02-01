@@ -1,62 +1,39 @@
-canon Package
-=============
+canon-remote API reference
+==========================
 
 .. contents::
     :local:
 
-:mod:`canon` Package
---------------------
-
-.. automodule:: canon.__init__
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-:mod:`camera` Module
---------------------
+:mod:`camera` -- the frontend
+-----------------------------
 
 .. automodule:: canon.camera
-    :members:
-    :undoc-members:
-    :show-inheritance:
+    :members: find, Camera
 
-:mod:`capture` Module
----------------------
+:mod:`capture` -- API for taking pictures
+-----------------------------------------
 
 .. automodule:: canon.capture
     :members:
-    :undoc-members:
-    :show-inheritance:
 
-:mod:`commands` Module
-----------------------
+Protocol implementation
+-----------------------
 
 .. automodule:: canon.commands
     :members:
-    :undoc-members:
-    :show-inheritance:
-
-:mod:`protocol` Module
-----------------------
 
 .. automodule:: canon.protocol
     :members:
-    :undoc-members:
-    :show-inheritance:
 
-:mod:`storage` Module
----------------------
+:mod:`storage` -- access the camera storage
+-------------------------------------------
 
 .. automodule:: canon.storage
     :members:
-    :undoc-members:
-    :show-inheritance:
 
-:mod:`util` Module
-------------------
+Miscellaneous
+-------------
 
 .. automodule:: canon.util
     :members:
-    :undoc-members:
-    :show-inheritance:
 

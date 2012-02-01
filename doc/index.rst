@@ -8,19 +8,14 @@ Python USB API for Canon digital cameras
 :Version: |release|
 :Last updated: |today|
 
-..
-    .. toctree::
-        reference/canon
+Table of Contents
 
-..
-    Overview
-    ========
-
-    The contents of `README.rst`  follow, may as well skip `forward`_.
+.. toctree::
+    storage
+    capture
+    reference/canon
 
 .. include:: ./../README.rst
-
-.. _forward:
 
 Related projects
 ================
@@ -31,8 +26,8 @@ gphoto2_
     I can only imagine how many hours of sniffing USB packets and staring
     at hexdumps it took. Gphoto is great, but it is generic and huge. While
     it is actively developed, supports a vast number of cameras, has been
-    extensively tested and comes with GUI tools, userspace filesystem d
-    river, etc. etc., hacking it is a serious business, especially for
+    extensively tested and comes with GUI tools, userspace filesystem
+    driver, etc. etc., hacking it is a serious business, especially for
     someone not-so-much-C-profficient-or-keen.
 
 capture_
@@ -42,7 +37,7 @@ capture_
 pycanon_
     A python wrapper for Canon's SDK. Couldn't use that, because Canon want
     you to agree not to reverse engineer it and/or release the information.
-    Also, I don't own a Windows machine.
+    Also, I try to avoid Windows as much as possible.
 
 s10sh_
     This is another really old little tool which talks to Canons.
@@ -80,6 +75,7 @@ To start playing with the driver, open up your `favorite python terminal`_::
 
     >>> from canon import camera
     >>> cam = camera.find() # look for a G3, pass idProduct for other models
+    >>> cam.initialize() # this establishes the communication channel
     >>> cam
     <Canon PowerShot G3 v1.0.2.0>
 
@@ -114,6 +110,7 @@ So setting :attr:`owner` caused a ``SetOwnerCmd`` to be executed, followed
 by an ``IdentifyCameraCmd``. To admire a real time dump of all USB traffic,
 set the log level to ``DEBUG``::
 
+    >>> l.setLevel(logging.DEBUG)
     >>> cam.identify() # a slightly fancier logging format here ...
     1327981738.91656 INFO   commands.py:239   --> IdentifyCameraCmd (0x1, 0x12, 0x201), #12
     1327981738.91735 INFO   protocol.py:256   control_write (rt: 0x40, req: 0x4, wValue: 0x10) 0x50 bytes
@@ -173,13 +170,14 @@ virtualbox_ machine. See `this
 <http://www.virtualbox.org/manual/ch03.html#idp11216576>`_ on how to
 enable USB support in a virtualbox guest. Wireshark_ runs on the host
 sniffing USB traffic. I wrote a small script to parse commands from
-stored pcap files using `pcapy`_.
+stored pcap files using `pcapy`_ which can be found in ``sandbox/``
 
 .. _`Remote Capture`: http://software.canon-europe.com/software/0019449.asp
 .. _virtualbox: https://www.virtualbox.org/
 .. _gphoto-suite: https://svn.sourceforge.net/svnroot/gphoto/trunk/gphoto-suite
 .. _Wireshark: http://wiki.wireshark.org/CaptureSetup/USB
 .. _pcapy: http://oss.coresecurity.com/projects/pcapy.html
+.. _favorite python terminal: http://bpython-interpreter.org/
 
 Indices and tables
 ==================
@@ -187,5 +185,3 @@ Indices and tables
 * :ref:`genindex`
 * :ref:`modindex`
 * :ref:`search`
-
-.. _favorite python terminal: http://bpython-interpreter.org/

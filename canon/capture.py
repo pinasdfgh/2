@@ -24,6 +24,7 @@ import usb.core
 from canon import commands, CanonError
 from canon.util import Bitfield, Flag, le32toi, itole32a, BooleanFlag
 from functools import wraps
+from usb.core import USBError
 
 _log = logging.getLogger(__name__)
 
@@ -187,22 +188,22 @@ class CaptureSettings(Bitfield):
 
     _size = 0x2f
 
-    image_format = Flag(1, 3)
-    flash = Flag(0x06, on=0x01, off=0x00)
-    beep = Flag(0x07, on=0x01, off=0x00)
-    macro = BooleanFlag(0x0d, true=0x03, false=0x01)
-    focus_mode = Flag(0x12)
-    iso = Flag(0x1a)
-    aperture = Flag(0x1c,
+    image_format = Flag(offset=1, length=3)
+    flash = Flag(offset=0x06, on=0x01, off=0x00)
+    beep = Flag(offset=0x07, on=0x01, off=0x00)
+    macro = BooleanFlag(offset=0x0d, true=0x03, false=0x01)
+    focus_mode = Flag(offset=0x12, length=1)
+    iso = Flag(offset=0x1a, length=1)
+    aperture = Flag(offset=0x1c, length=1,
                     F1_2=0x0d, F1_4=0x10, F1_6=0x13, F1_8=0x15,
                     F2_0=0x18, F2_2=0x1b, F2_5=0x1d, F2_8=0x20, F3_2=0x23,
                     F3_5=0x25, F4_0=0x28, F4_5=0x2b, F5_0=0x2d, F5_6=0x30,
                     F6_3=0x33, F7_1=0x35, F8=0x38, F9=0x3b, F10=0x3d,
                     F11=0x40, F13=0x43, F14=0x45, F16=0x48, F18=0x4b,
                     F20=0x4d, F22=0x50, F25=0x53, F29=0x55, F32=0x58)
-    shutter_speed = Flag(0x1e)
-    exposure_bias = Flag(0x20)
-    shooting_mode = Flag(0x08)
+    shutter_speed = Flag(offset=0x1e)
+    exposure_bias = Flag(offset=0x20)
+    shooting_mode = Flag(offset=0x08)
 
 def require_active_capture(func):
     @wraps(func)
@@ -313,8 +314,6 @@ class CanonCapture(object):
         self._usb = usb
         self._settings = None
         self._in_rc = False
-        if usb.ready:
-            self.stop()
 
     def initialize(self, force=False):
         self.stop()
@@ -336,9 +335,6 @@ class CanonCapture(object):
 
         # if keys are not locked RC INIT fails, maybe
         commands.GenericLockKeysCmd().execute(self._usb)
-
-        # anyone willing to screw Canon's agreements and
-        # sniff the SDK a bit?
 
         # 5 seconds seem more than enough
         with self._usb.timeout_ctx(5000):

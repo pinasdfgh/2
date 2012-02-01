@@ -1,0 +1,2 @@
+Taking pictures
+===============

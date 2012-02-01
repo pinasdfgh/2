@@ -201,7 +201,9 @@ class CanonStorage(object):
 
         ``target`` is either a file-like object or the file name to open
         and write to.
+
         ``thumbnail`` says wheter to get the thumbnail or the whole file.
+
         """
         if not hasattr(target, 'write'):
             target = open(target, 'wb+')
