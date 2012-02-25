@@ -17,7 +17,8 @@
 import logging
 
 from canon import protocol, commands
-from canon.util import extract_string, le32toi, itole32a, BooleanFlag, Bitfield
+from canon.util import extract_string, le32toi, itole32a
+from canon.bitfield import BooleanFlag, Bitfield
 from array import array
 import itertools
 

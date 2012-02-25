@@ -1,12 +1,12 @@
 from array import array
 import unittest
 
-from canon import util
+from canon import util, bitfield
 
 class BitfieldTest(unittest.TestCase):
 
     def _get_bitfield_class(self):
-        class FooBit(util.Bitfield):
+        class FooBit(bitfield.Bitfield):
             """
                   0        1        2        3        4
                   +--------+--------+--------+--------+--------+
@@ -17,11 +17,11 @@ class BitfieldTest(unittest.TestCase):
 
             """
             _size = 5
-            first = util.Flag(offset=0, length=1, fmt='B',
+            first = bitfield.Flag(offset=0, length=1, fmt='B',
                               on=0x01, off=0x02, blinking=0x04)
-            second = util.Flag(2, 2)
-            third = util.Flag(4, 1)
-            over = util.Flag(1, 3, fight=0x44, meou=0x04, bark=0x40)
+            second = bitfield.Flag(2, 2)
+            third = bitfield.Flag(4, 1)
+            over = bitfield.Flag(1, 3, fight=0x44, meou=0x04, bark=0x40)
 
         return FooBit
 

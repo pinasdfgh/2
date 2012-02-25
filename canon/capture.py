@@ -22,9 +22,9 @@ from array import array
 import usb.core
 
 from canon import commands, CanonError
-from canon.util import Bitfield, Flag, le32toi, itole32a, BooleanFlag
+from canon.bitfield import Bitfield, Flag, BooleanFlag
+from canon.util import itole32a
 from functools import wraps
-from usb.core import USBError
 
 _log = logging.getLogger(__name__)
 

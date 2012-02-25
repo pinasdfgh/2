@@ -38,7 +38,7 @@ import usb.util
 from usb.core import USBError
 
 from canon import CanonError
-from canon.util import le32toi, hexdump, itole32a, Bitfield
+from canon.util import le32toi, hexdump, itole32a
 
 _log = logging.getLogger(__name__)
 

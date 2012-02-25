@@ -7,6 +7,8 @@ class BaseCameraTestCase(unittest.TestCase):
 
     def setUp(self):
         self.cam = camera.find()
+        if not self.cam:
+            raise unittest.SkipTest("No camera found.")
         for _ in xrange(3):
             try:
                 self.cam.initialize(True)

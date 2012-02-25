@@ -25,7 +25,6 @@ from usb.core import USBError
 from canon import CanonError, protocol, commands
 from canon.capture import CanonCapture
 from canon.storage import CanonStorage
-from canon.util import extract_string, le32toi, itole32a, hexdump, le16toi
 
 _log = logging.getLogger(__name__)
 

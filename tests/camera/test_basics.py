@@ -1,7 +1,7 @@
 import time
 import unittest
 
-from .base import BaseCameraTestCase
+from base import BaseCameraTestCase
 
 class BasicCameraOperationsTest(BaseCameraTestCase):
 

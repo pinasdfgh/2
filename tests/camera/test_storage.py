@@ -3,9 +3,9 @@ import unittest
 
 from canon import camera
 
-from . import base
+from base import BaseCameraTestCase
 
-class CanonFilesystemTest(base.BaseCameraTestCase):
+class CanonFilesystemTest(BaseCameraTestCase):
     pass
 
 if __name__ == '__main__':

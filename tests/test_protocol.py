@@ -12,6 +12,5 @@ class TestProtocolStructures(unittest.TestCase):
         foo = CaptureSettings(data)
         self.assertEqual(data.tostring(), foo.tostring())
 
-
 if __name__ == '__main__':
     unittest.main()
